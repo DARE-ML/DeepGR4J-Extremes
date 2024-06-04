@@ -8,10 +8,13 @@ def nse(targets: np.ndarray, predictions: np.ndarray):
 def normalize(x):
     return 1/(2 - x)
 
-def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quantiles: list, plot:bool = True):
+def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None, plot:bool = True):
 
     # Calculate NSE score
-    nse_score = nse(Q, Q_hat[:, int(len(quantiles)/2)])
+    if quantiles is not None:
+        nse_score = nse(Q, Q_hat[:, int(len(quantiles)/2)])
+    else:
+        nse_score = nse(Q, Q_hat)
     nnse_score = normalize(nse_score)
 
     # Plot hydrograph
@@ -19,10 +22,13 @@ def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quan
         
         fig, ax = plt.subplots(figsize=(16, 6))
         ax.plot(Q, color='black', label='obs', alpha=1.0)
-        for i, q in enumerate(quantiles):
-            ax.plot(Q_hat[:, i], label=f'pred-{q:.2f}', alpha=0.75)
-        # ax.plot(P, 'g--', label='precip', alpha=0.40)
-        # ax.plot(E, 'y--', label='etp', alpha=0.30)
+        if quantiles is not None:
+            for i, q in enumerate(quantiles):
+                ax.plot(Q_hat[:, i], label=f'pred-{q:.2f}', alpha=0.75)
+        else:
+            ax.plot(Q_hat, color='red', label=f'pred', alpha=0.75)
+            ax.plot(P, 'g--', label='precip', alpha=0.40)
+            ax.plot(E, 'y--', label='etp', alpha=0.30)
 
         ax.set_xlabel('Timestep')
         ax.set_ylabel('Flow (mm/day)')
