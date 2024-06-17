@@ -24,7 +24,9 @@ def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quan
         ax.plot(Q, color='black', label='obs', alpha=1.0)
         if quantiles is not None:
             for i, q in enumerate(quantiles):
-                ax.plot(Q_hat[:, i], label=f'pred-{q:.2f}', alpha=0.75)
+                if q == 0.5:
+                    ax.plot(Q_hat[:, i], label=f'pred-{q:.2f}', alpha=0.75, color='red')
+                ax.fill_between(range(len(Q_hat)), Q_hat[:, 0], Q_hat[:, -1], alpha=0.5, color='green')
         else:
             ax.plot(Q_hat, color='red', label=f'pred', alpha=0.75)
             ax.plot(P, 'g--', label='precip', alpha=0.40)
