@@ -6,12 +6,12 @@ import argparse
 
 import joblib
 import numpy as np
-import torch
+import tensorflow as tf
 
 from tqdm import tqdm
 
 sys.path.append('..')
-from data.camels_dataset import CamelsAusDataset
+from data.tf.camels_dataset import CamelsAusDataset
 
 # ------------------------------------------------
 
@@ -82,18 +82,22 @@ def create_datasets(data_dir, sub_dir, scale,
         train_ds = camels_ds.ds_store[station_id]['train']
         val_ds = camels_ds.ds_store[station_id]['val']
 
-        t_train, X_train, y_train = train_ds.tensors
-        t_val, X_val, y_val = val_ds.tensors
+        t_train, X_train, y_train = train_ds._tensors
+        t_val, X_val, y_val = val_ds._tensors
 
-        torch.save(t_train, os.path.join(train_path, 't_train.pt'))
-        torch.save(X_train, os.path.join(train_path, 'X_train.pt'))
-        torch.save(y_train, os.path.join(train_path, 'y_train.pt'))
-        
-        torch.save(t_val, os.path.join(val_path, 't_val.pt'))
-        torch.save(X_val, os.path.join(val_path, 'X_val.pt'))
-        torch.save(y_val, os.path.join(val_path, 'y_val.pt'))
+        np.save(os.path.join(train_path, 't_train.npy'), t_train.numpy())
+        np.save(os.path.join(train_path, 'X_train.npy'), X_train.numpy())
+        np.save(os.path.join(train_path, 'y_train.npy'), y_train.numpy())
+
+        np.save(os.path.join(val_path, 't_val.npy'), t_val.numpy())
+        np.save(os.path.join(val_path, 'X_val.npy'), X_val.numpy())
+        np.save(os.path.join(val_path, 'y_val.npy'), y_val.numpy())
 
     print("Done!")
+
+
+
+
 
 
 
