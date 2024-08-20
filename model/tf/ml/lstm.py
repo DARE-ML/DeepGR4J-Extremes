@@ -28,6 +28,9 @@ class LSTM(tf.keras.Model):
                                                 return_sequences=True,
                                                 return_state=True)
 
+        # Flatten layer
+        self.flatten = tf.keras.layers.Flatten()
+
         # Fully-connected output layer
         self.fc1 = tf.keras.layers.Dense(self.hidden_dim)
 
@@ -47,13 +50,14 @@ class LSTM(tf.keras.Model):
         batch_size, seq_size, input_size = x.shape
 
         # Initialize hidden_state
-        hidden, cell = self.init_zero_hidden(batch_size)
+        # hidden, cell = self.init_zero_hidden(batch_size)
 
         # Pass through the recurrent layer
-        out, _, _ = self.lstm_layer(x, initial_state=[hidden, cell])
+        out, _, _ = self.lstm_layer(x)
 
         # Reshaping the outputs such that it can be fit into the fully connected layer
-        out = tf.reshape(out[:, -2:, :], [batch_size, -1])
+        # out = tf.reshape(out[:, -2:, :], [batch_size, -1])
+        out = self.flatten(out[:, -2:, :])
         out = tf.tanh(out)
         out = self.do(out)
         out = tf.tanh(self.fc1(out))
