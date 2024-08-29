@@ -240,6 +240,20 @@ class CamelsDataset(object):
         if compute_flow_cdf:
             self.targets = self.add_flow_cdf(self.targets)
             self.targets.drop(columns=['streamflow_MLd_infilled'], inplace=True)
+            self.target_vars.remove('streamflow_MLd_infilled')
+            if 'flow_cdf' not in self.target_vars:
+                self.target_vars.append('flow_cdf')
+
+        # Scalers
+        self.ts_scaler = StandardScaler()
+        self.static_scaler = StandardScaler()
+        self.target_scaler = StandardScaler()
+
+        # Scale
+        self.ts_data[self.ts_vars] = self.ts_scaler.fit_transform(self.ts_data[self.ts_vars])
+        self.static_data[self.streamflow_vars] = self.ts_scaler.fit_transform(self.static_data[self.streamflow_vars])
+        self.targets[self.target_vars] = self.ts_scaler.fit_transform(self.targets[self.target_vars])
+        
     
     def add_flow_cdf(self, target_data):
         target_data_updated = []
@@ -282,9 +296,9 @@ class CamelsDataset(object):
             target_arr.append(station_targets)
             station_names.append(station_names_data)
         
-        self.ts_arr = np.concatenate(ts_arr)
-        self.static_arr = np.concatenate(static_arr)
-        self.target_arr = np.concatenate(target_arr)
+        self.ts_arr = np.nan_to_num(np.concatenate(ts_arr))
+        self.static_arr = np.nan_to_num(np.concatenate(static_arr))
+        self.target_arr = np.nan_to_num(np.concatenate(target_arr))
         self.station_names = np.concatenate(station_names)
 
     def create_sequences(self, x, y, window_size):
@@ -377,8 +391,8 @@ class HybridDataset(CamelsDataset):
 
             # Initialize GR4J Production storage
             x1_param = self.gr4j_logs.loc[self.gr4j_logs['station_id']==station_id, 'x1'].values[0]
-            prod = self.prod.set_x1(x1_param)
-            station_hybrid_feat = prod(tf.convert_to_tensor(station_ts), include_x=False, scale=False)[0].numpy()
+            self.prod.set_x1(x1_param)
+            station_hybrid_feat = self.prod(tf.convert_to_tensor(station_ts), include_x=False, scale=False)[0].numpy()
             station_ts = np.concatenate([station_ts, station_hybrid_feat], axis=1)
             
             station_ts_data, station_targets = self.create_sequences(station_ts, station_targets, WINDOW_SIZE)
