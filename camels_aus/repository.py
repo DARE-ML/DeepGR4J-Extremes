@@ -31,6 +31,7 @@ from .read import (
     load_streamflow_signatures,
     streamflow_signatures_names,
     STREAMFLOW_MMD_VARNAME,
+    STREAMFLOW_MLD_VARNAME,
     STREAMFLOW_QUALITYCODES_VARNAME,
     PRECIPITATION_AWAP_VARNAME,
     ET_MORTON_ACTUAL_SILO_VARNAME,
@@ -184,6 +185,12 @@ class CamelsAus:
             streamflow_dir, "streamflow_mmd.csv", negative_is_missing, "mm", np.float32
         )
 
+        # streamflow_MLd_InclInfilled.csv
+        _streamflow_MLd = self.load_time_series(
+            streamflow_dir, "streamflow_MLd_InclInfilled.csv", negative_is_missing, "ML", np.float32
+        )
+
+
         # streamflow_GaugingStats.csv
         streamflow_gauging_stats_fn = os.path.join(
             streamflow_dir, "streamflow_GaugingStats.csv"
@@ -271,6 +278,7 @@ class CamelsAus:
 
         d = dict(_id_name_metadata)
         d.update({STREAMFLOW_MMD_VARNAME: _streamflow_mmd})
+        d.update({STREAMFLOW_MLD_VARNAME: _streamflow_MLd})
         d.update({STREAMFLOW_QUALITYCODES_VARNAME: streamflow_quality_codes})
         d.update({PRECIPITATION_AWAP_VARNAME: precipitation_awap})
         d.update({ET_MORTON_ACTUAL_SILO_VARNAME: et_morton_actual_silo})
@@ -324,6 +332,7 @@ class CamelsAus:
         return self._ds[
             [
                 STREAMFLOW_MMD_VARNAME,
+                STREAMFLOW_MLD_VARNAME,
                 STREAMFLOW_QUALITYCODES_VARNAME,
                 PRECIPITATION_AWAP_VARNAME,
                 ET_MORTON_ACTUAL_SILO_VARNAME,

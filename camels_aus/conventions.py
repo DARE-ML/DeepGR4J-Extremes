@@ -266,6 +266,7 @@ def streamflow_signatures_names():
 
 
 STREAMFLOW_MMD_VARNAME = "streamflow_mmd"
+STREAMFLOW_MLD_VARNAME = "streamflow_MLd_infilled"
 STREAMFLOW_QUALITYCODES_VARNAME = "streamflow_QualityCodes"
 PRECIPITATION_AWAP_VARNAME = "precipitation_AWAP"
 ET_MORTON_ACTUAL_SILO_VARNAME = "et_morton_actual_SILO"
