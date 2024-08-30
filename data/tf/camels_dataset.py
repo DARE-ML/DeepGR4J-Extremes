@@ -252,7 +252,7 @@ class CamelsDataset(object):
         # Scale
         self.ts_data[self.ts_vars] = self.ts_scaler.fit_transform(self.ts_data[self.ts_vars])
         self.static_data[self.streamflow_vars] = self.ts_scaler.fit_transform(self.static_data[self.streamflow_vars])
-        self.targets[self.target_vars] = self.ts_scaler.fit_transform(self.targets[self.target_vars])
+        # self.targets[self.target_vars] = self.ts_scaler.fit_transform(self.targets[self.target_vars])
         
     
     def add_flow_cdf(self, target_data):
