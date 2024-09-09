@@ -178,13 +178,12 @@ class CamelsDataset(object):
     target_vars = ['streamflow_mmd']
     ts_slice = slice(dt.datetime(1980, 1, 1), dt.datetime(2015, 1, 1))
 
-    def __init__(self, data_dir, state_outlet=None, map_zone=None,
-                 station_list=None, ts_vars=None, location_vars=None,
+    def __init__(self, data_dir, ts_vars=None, location_vars=None,
                  streamflow_vars=None, target_vars=None, window_size=WINDOW_SIZE) -> None:
         super().__init__()
         self.data_dir = data_dir
         self.window_size = window_size
-        compute_flow_cdf = False
+        self.compute_flow_cdf = False
 
         # Reassign columns
         if ts_vars is not None:
@@ -195,19 +194,30 @@ class CamelsDataset(object):
             self.streamflow_vars = streamflow_vars
         if target_vars is not None:
             self.target_vars = target_vars
-        
-        if 'flow_cdf' in self.target_vars:
-            self.target_vars.remove('flow_cdf')
-            if 'streamflow_MLd_infilled' not in self.target_vars:
-                self.target_vars.append('streamflow_MLd_infilled')
-            compute_flow_cdf = True
 
         # Load the data
         self.repo = CamelsAus()
         self.repo.load_from_text_files(data_dir)
+    
+    def get_station_list(self):
+        return self.repo.location_attributes.to_dataframe().reset_index().station_id.unique()
+
+    def get_zones(self):
+        return self.repo.location_attributes.to_dataframe().reset_index()[['state_outlet', 'map_zone']].drop_duplicates().values
+
+    
+    def prepare_data(self, station_list=None, state_outlet=None, map_zone=None):
+
+        # Check if flow_cdf is in target_vars
+        if 'flow_cdf' in self.target_vars:
+            self.target_vars.remove('flow_cdf')
+            if 'streamflow_MLd_infilled' not in self.target_vars:
+                self.target_vars.append('streamflow_MLd_infilled')
+            self.compute_flow_cdf = True
 
         # # Timeseries data
         ts_data = self.repo.daily_data.sel(time=self.ts_slice)[self.ts_vars+self.target_vars].to_dataframe().reset_index()
+        ts_data = ts_data.dropna()
         self.ts_data = ts_data[self.ts_vars + ['station_id', 'time']]
         self.targets = ts_data[self.target_vars + ['station_id', 'time']]
         
@@ -229,15 +239,23 @@ class CamelsDataset(object):
             raise ValueError('station_list or state_outlet and map_zone must be provided')
         self.static_data.drop(columns=self.location_vars, inplace=True)
 
-        # Timestamps
-        self._ts = self.ts_data.time.unique()
-
         # Sort data
         self.ts_data = self.ts_data.sort_values(['time', 'station_id'])
         self.static_data = self.static_data.sort_values('station_id')
         self.targets = self.targets.sort_values(['time', 'station_id'])
 
-        if compute_flow_cdf:
+        # Timestamps
+        self._ts = self.ts_data.time.unique()
+
+        # Convert time to sin and cos
+        date_min = np.min(self._ts)
+        year_seconds = 365.2425*24*60*60
+        diff_seconds = (self.ts_data['time'] - date_min).dt.total_seconds().values
+        self.ts_data['year_sin'] =  np.sin(diff_seconds * (2*np.pi/year_seconds))
+        self.ts_data['year_cos'] =  np.cos(diff_seconds * (2*np.pi/year_seconds))
+
+        
+        if self.compute_flow_cdf:
             self.targets = self.add_flow_cdf(self.targets)
             self.targets.drop(columns=['streamflow_MLd_infilled'], inplace=True)
             self.target_vars.remove('streamflow_MLd_infilled')
@@ -251,8 +269,8 @@ class CamelsDataset(object):
 
         # Scale
         self.ts_data[self.ts_vars] = self.ts_scaler.fit_transform(self.ts_data[self.ts_vars])
-        self.static_data[self.streamflow_vars] = self.ts_scaler.fit_transform(self.static_data[self.streamflow_vars])
-        # self.targets[self.target_vars] = self.ts_scaler.fit_transform(self.targets[self.target_vars])
+        self.static_data[self.streamflow_vars] = self.static_scaler.fit_transform(self.static_data[self.streamflow_vars])
+        self.targets[self.target_vars] = self.target_scaler.fit_transform(self.targets[self.target_vars])
         
     
     def add_flow_cdf(self, target_data):
@@ -309,46 +327,71 @@ class CamelsDataset(object):
             targets.append(y[i])
         return np.stack(sequences), np.stack(targets)
     
-    def get_datasets(self, test_size=0.2, batch_size=32):
+    def get_datasets(self, test_size=0.2):
         # Create the datasets
         self.create_datasets(self.ts_data, self.static_data, self.targets)
 
-        # Split the data
-        n_stations = np.unique(self.station_names).shape[0]
-        n_records = self.station_names.shape[0]/n_stations
-        n_records_train = int(n_records*(1-test_size)) * n_stations
+        # Lists to store train and test data
+        ts_train, ts_test = [], []
+        static_train, static_test = [], []
+        target_train, target_test = [], []
+        station_names_train, station_names_test = [], []
 
-        ts_train = self.ts_arr[:n_records_train]
-        ts_test = self.ts_arr[n_records_train:]
-        static_train = self.static_arr[:n_records_train]
-        static_test = self.static_arr[n_records_train:]
-        target_train = self.target_arr[:n_records_train]
-        target_test = self.target_arr[n_records_train:]
-        station_names_train = self.station_names[:n_records_train]
-        station_names_test = self.station_names[n_records_train:]
+        for i, station_id in enumerate(self.station_list):
+            
+            # Station indices
+            station_idx = self.station_names.flatten() == station_id
 
-        # Conver train and test data to tensors
-        ts_train = tf.convert_to_tensor(ts_train, dtype=tf.float32, name='timeseries_train')
-        ts_test = tf.convert_to_tensor(ts_test, dtype=tf.float32, name='timeseries_test')
-        static_train = tf.convert_to_tensor(static_train, dtype=tf.float32, name='static_train')
-        static_test = tf.convert_to_tensor(static_test, dtype=tf.float32, name='static_test')
-        target_train = tf.convert_to_tensor(target_train, dtype=tf.float32, name='target_train')
-        target_test = tf.convert_to_tensor(target_test, dtype=tf.float32, name='target_test')
-        station_names_train = tf.convert_to_tensor(station_names_train, dtype=tf.string, name='station_names_train')
-        station_names_test = tf.convert_to_tensor(station_names_test, dtype=tf.string, name='station_names_test')
+            # Station arrays
+            station_ts = self.ts_arr[station_idx]
+            station_static = self.static_arr[station_idx]
+            station_names = self.station_names[station_idx]
+            station_target = self.target_arr[station_idx]
 
+            # Split arrays into train & test
+            n_records = station_names.shape[0]
+            n_records_train = int(n_records*(1-test_size))
+
+            # Train data
+            ts_train.append(station_ts[:n_records_train])
+            static_train.append(station_static[:n_records_train])
+            target_train.append(station_target[:n_records_train])
+            station_names_train.append(station_names[:n_records_train])
+
+            # Test data
+            ts_test.append(station_ts[n_records_train:])
+            static_test.append(station_static[n_records_train:])
+            target_test.append(station_target[n_records_train:])
+            station_names_test.append(station_names[n_records_train:])
+
+        # Convert train and test data to tensors
+        ts_train = tf.convert_to_tensor(np.concatenate(ts_train, axis=0),
+                                        dtype=tf.float32, name='timeseries_train')
+        ts_test = tf.convert_to_tensor(np.concatenate(ts_test, axis=0),
+                                       dtype=tf.float32, name='timeseries_test')
+        static_train = tf.convert_to_tensor(np.concatenate(static_train, axis=0),
+                                            dtype=tf.float32, name='static_train')
+        static_test = tf.convert_to_tensor(np.concatenate(static_test, axis=0),
+                                           dtype=tf.float32, name='static_test')
+        target_train = tf.convert_to_tensor(np.concatenate(target_train, axis=0),
+                                            dtype=tf.float32, name='target_train')
+        target_test = tf.convert_to_tensor(np.concatenate(target_test, axis=0),
+                                           dtype=tf.float32, name='target_test')
+        station_names_train = tf.convert_to_tensor(np.concatenate(station_names_train, axis=0),
+                                                    dtype=tf.string, name='station_names_train')
+        station_names_test = tf.convert_to_tensor(np.concatenate(station_names_test, axis=0),
+                                                    dtype=tf.string, name='station_names_test')
+        
         # Create the datasets
         train_dataset = tf.data.Dataset.from_tensor_slices({'station_id': station_names_train,
                                                             'timeseries': ts_train,
                                                             'static': static_train,
                                                             'target': target_train})
-        train_dataset = train_dataset.shuffle(140000).batch(batch_size)
 
         test_dataset = tf.data.Dataset.from_tensor_slices({'station_id': station_names_test,
                                                            'timeseries': ts_test,
                                                            'static': static_test,
                                                            'target': target_test})
-        test_dataset = test_dataset.batch(batch_size)
         
         return train_dataset, test_dataset
 
@@ -368,10 +411,10 @@ class HybridDataset(CamelsDataset):
 
     def __init__(self, data_dir, gr4j_logfile, prod, 
                  state_outlet=None, map_zone=None,
-                 station_list=None, window_size=WINDOW_SIZE) -> None:
+                 station_list=None, window_size=WINDOW_SIZE, **kwargs) -> None:
         super().__init__(data_dir, state_outlet=state_outlet,
                          map_zone=map_zone, station_list=station_list,
-                         window_size=window_size)
+                         window_size=window_size, **kwargs)
         self.gr4j_logs = pd.read_csv(gr4j_logfile)
         self.prod = prod
     
@@ -395,7 +438,7 @@ class HybridDataset(CamelsDataset):
             station_hybrid_feat = self.prod(tf.convert_to_tensor(station_ts), include_x=False, scale=False)[0].numpy()
             station_ts = np.concatenate([station_ts, station_hybrid_feat], axis=1)
             
-            station_ts_data, station_targets = self.create_sequences(station_ts, station_targets, WINDOW_SIZE)
+            station_ts_data, station_targets = self.create_sequences(station_ts, station_targets, self.window_size)
             station_static_data = np.repeat(station_static, station_ts_data.shape[0], axis=0)
             station_names_data = np.repeat([station_id], station_ts_data.shape[0], axis=0)[:, np.newaxis]
             

@@ -57,7 +57,7 @@ class LSTM(tf.keras.Model):
 
         # Reshaping the outputs such that it can be fit into the fully connected layer
         # out = tf.reshape(out[:, -2:, :], [batch_size, -1])
-        out = self.flatten(out[:, -2:, :])
+        out = self.flatten(out[:, -3:, :])
         out = tf.tanh(out)
         out = self.do(out)
         out = tf.tanh(self.fc1(out))
