@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#PBS -N flowcdf_wa
+#PBS -l select=1:ncpus=4:mem=46gb:ngpus=1
+#PBS -l walltime=2:00:00 
+#PBS -M arpit.kapoor@unsw.edu.au 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /home/z5370003/logs/flowcdf_wa.log
+
+cd $PBS_O_WORKDIR
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_cdf_model.py --learning_rate 1e-4 --batch_size 1024 --window_size 8 --dropout 0.2 --epochs 400 --target_vars flow_cdf --results_dir ../results/flow_cdf_star

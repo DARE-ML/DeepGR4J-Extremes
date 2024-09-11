@@ -11,8 +11,8 @@ import matplotlib.pyplot as plt
 from tqdm import tqdm, trange
 from sklearn.metrics import mean_squared_error
 
-# root_dir = '/srv/scratch/z5370003/projects/DeepGR4J-Extremes'
-# sys.path.append(root_dir)
+root_dir = '/srv/scratch/z5370003/projects/DeepGR4J-Extremes'
+sys.path.append(root_dir)
 
 from model.tf.ml import ConvNet, LSTM
 from data.tf.camels_dataset import CamelsDataset
@@ -23,10 +23,10 @@ parser = argparse.ArgumentParser(description='Train Flow CDF Model')
 
 # Add arguments
 parser.add_argument('--window_size', type=int, default=10, help='Size of the sliding window')
-parser.add_argument('--camels_dir', type=str, default='../data/camels/aus', help='Directory containing CAMELS dataset')
+parser.add_argument('--camels_dir', type=str, default='../../data/camels/aus', help='Directory containing CAMELS dataset')
 parser.add_argument('--target_vars', type=str, nargs='+', default=['flow_cdf'], help='Target variables')
 parser.add_argument('--station_id', type=str, nargs='+', default=None, help='Target variables')
-parser.add_argument('--results_dir', type=str, default='results/flow_cdf', help='Directory to save results')
+parser.add_argument('--results_dir', type=str, default='../results/flow_cdf', help='Directory to save results')
 parser.add_argument('--state_outlet', type=str, default=None, help='State outlet')
 parser.add_argument('--map_zone', type=int, default=None, help='Map zone')
 parser.add_argument('--ts_model', type=str, default='lstm', help='Time series model')
@@ -78,7 +78,7 @@ def get_model(args):
                            n_channels=args.n_channels,
                            out_dim=args.out_dim,
                            n_filters=args.n_filters,
-                           dropout_p=args.dropout)
+                           dropout_p=args.cnn_dropout)
 
     static_model = tf.keras.Sequential([
                         tf.keras.layers.Dense(args.static_hidden_dim, activation='tanh'),

@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#PBS -N flow_model
+#PBS -l select=1:ncpus=4:mem=46gb:ngpus=1
+#PBS -l walltime=2:00:00 
+#PBS -M arpit.kapoor@unsw.edu.au 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /home/z5370003/logs/flow.log
+
+cd $PBS_O_WORKDIR
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --learning_rate 6e-4 --batch_size 256 --window_size 8 --dropout 0.2 --epochs 500 --results_dir ../results/deepgr4j

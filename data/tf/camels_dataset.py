@@ -409,12 +409,8 @@ class HybridDataset(CamelsDataset):
     target_vars = ['streamflow_mmd']
     ts_slice = slice(dt.datetime(1980, 1, 1), dt.datetime(2015, 1, 1))
 
-    def __init__(self, data_dir, gr4j_logfile, prod, 
-                 state_outlet=None, map_zone=None,
-                 station_list=None, window_size=WINDOW_SIZE, **kwargs) -> None:
-        super().__init__(data_dir, state_outlet=state_outlet,
-                         map_zone=map_zone, station_list=station_list,
-                         window_size=window_size, **kwargs)
+    def __init__(self, data_dir, gr4j_logfile, prod, window_size=WINDOW_SIZE, **kwargs) -> None:
+        super().__init__(data_dir, window_size=window_size, **kwargs)
         self.gr4j_logs = pd.read_csv(gr4j_logfile)
         self.prod = prod
     
@@ -435,7 +431,7 @@ class HybridDataset(CamelsDataset):
             # Initialize GR4J Production storage
             x1_param = self.gr4j_logs.loc[self.gr4j_logs['station_id']==station_id, 'x1'].values[0]
             self.prod.set_x1(x1_param)
-            station_hybrid_feat = self.prod(tf.convert_to_tensor(station_ts), include_x=False, scale=False)[0].numpy()
+            station_hybrid_feat = self.prod(tf.convert_to_tensor(station_ts), include_x=False, scale=True)[0].numpy()
             station_ts = np.concatenate([station_ts, station_hybrid_feat], axis=1)
             
             station_ts_data, station_targets = self.create_sequences(station_ts, station_targets, self.window_size)

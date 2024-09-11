@@ -2,7 +2,8 @@ import time
 import numpy as np
 import tensorflow as tf
 
-# %%
+
+# Early stopping class
 class EarlyStopper:
     def __init__(self, patience=1, min_delta=0):
         self.patience = patience
@@ -19,10 +20,34 @@ class EarlyStopper:
             if self.counter >= self.patience:
                 return True
         return False
-    
 
+
+# Tilted loss function
+class TiltedLoss(tf.keras.losses.Loss):
+    def __init__(self, alpha):
+        super(TiltedLoss, self).__init__()
+        self.alpha = alpha
+
+    def call(self, y_true, y_pred):
+        residual = y_true - y_pred
+        loss = tf.maximum(self.alpha * residual, (self.alpha - 1) * residual)
+        return tf.reduce_mean(loss)
+
+# Tilted loss function for multi-quantile regression
+class TiltedLossMultiQuantile(tf.keras.losses.Loss):
+    def __init__(self, quantiles):
+        super(TiltedLossMultiQuantile, self).__init__()
+        self.quantiles = quantiles
+
+    def call(self, y_true, y_pred):
+        residual = y_true - y_pred
+        loss = tf.reduce_mean(tf.maximum(self.quantiles * residual, (self.quantiles - 1) * residual), axis=1)
+        return tf.reduce_mean(loss)
+
+
+# Model trainer class
 class Trainer:
-    def __init__(self, model, optimizer, loss_fn=None, early_stopper=None):
+    def __init__(self, model, optimizer, loss_fn=None, model_type='ensemble', early_stopper=None):
         self.model = model
         self.optimizer = optimizer
         if isinstance(loss_fn, str):
@@ -37,6 +62,8 @@ class Trainer:
         # Metrics
         self.train_loss_metric = tf.keras.metrics.MeanSquaredError()
         self.test_loss_metric = tf.keras.metrics.MeanSquaredError()
+
+        self.model_type = model_type
     
     @tf.function
     def train_step(self, x, y):
@@ -72,10 +99,15 @@ class Trainer:
 
             for step, batch_train in enumerate(train_dl):
 
-                # Extract input and output batchs
+                # Expand dimensions for CNN model
                 if args.ts_model == 'cnn':
                     batch_train['timeseries'] = tf.expand_dims(batch_train['timeseries'], axis=-1)
-                x_batch_train = [batch_train['timeseries'] , batch_train['static']]
+
+                # Extract input and output batchs
+                if self.model_type == 'ts':
+                    x_batch_train = batch_train['timeseries']
+                elif self.model_type == 'ensemble':
+                    x_batch_train = [batch_train['timeseries'] , batch_train['static']]
                 y_batch_train = batch_train['target']
 
                 # Train on batch
@@ -92,9 +124,16 @@ class Trainer:
 
             # Evaluate on validation set
             for batch_test in test_dl:
+                
+                # Expand dimensions for CNN model
                 if args.ts_model == 'cnn':
                     batch_test['timeseries'] = tf.expand_dims(batch_test['timeseries'], axis=-1)
-                x_batch_val = [batch_test['timeseries'], batch_test['static']]
+                
+                # Extract input and output batchs
+                if self.model_type == 'ts':
+                    x_batch_val = batch_test['timeseries']
+                elif self.model_type == 'ensemble':
+                    x_batch_val = [batch_test['timeseries'], batch_test['static']]
                 y_batch_val = batch_test['target']
                 self.test_step(x_batch_val, y_batch_val)
             

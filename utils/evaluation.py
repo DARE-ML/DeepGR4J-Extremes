@@ -8,7 +8,7 @@ def nse(targets: np.ndarray, predictions: np.ndarray):
 def normalize(x):
     return 1/(2 - x)
 
-def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None, plot:bool = True):
+def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None, plot:bool=True):
 
     # Calculate NSE score
     if quantiles is not None:
