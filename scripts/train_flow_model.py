@@ -17,7 +17,7 @@ sys.path.append(root_dir)
 from model.tf.ml import ConvNet, LSTM
 from model.tf.hydro import ProductionStorage
 from data.tf.camels_dataset import HybridDataset
-from utils.training import EarlyStopper, Trainer
+from utils.training import EarlyStopper, Trainer, TiltedLossMultiQuantile
 from utils.evaluation import nse, normalize
 
 # Create argument parser
@@ -43,7 +43,7 @@ parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate for
 parser.add_argument('--n_ts', type=int, default=10, help='Number of time steps')
 parser.add_argument('--n_features', type=int, default=6, help='Number of features')
 parser.add_argument('--n_channels', type=int, default=1, help='Number of channels')
-parser.add_argument('--out_dim', type=int, default=1, help='Output dimension')
+# parser.add_argument('--out_dim', type=int, default=3, help='Output dimension')
 parser.add_argument('--n_filters', type=int, nargs='+', default=[16, 16, 8], help='Number of filters for CNN')
 parser.add_argument('--cnn_dropout', type=float, default=0.1, help='Dropout rate for CNN')
 
@@ -51,9 +51,9 @@ parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs')
 parser.add_argument('--verbose', type=int, default=1, help='Verbosity level')
 parser.add_argument('--learning_rate', type=float, default=1e-5, help='Learning rate')
-parser.add_argument('--beta_1', type=float, default=0.88, help='Beta 1 for Adam optimizer')
-parser.add_argument('--beta_2', type=float, default=0.997, help='Beta 2 for Adam optimizer')
-parser.add_argument('--weight_decay', type=float, default=1e-2, help='Weight decay for Adam optimizer')
+parser.add_argument('--beta_1', type=float, default=0.89, help='Beta 1 for Adam optimizer')
+parser.add_argument('--beta_2', type=float, default=0.998, help='Beta 2 for Adam optimizer')
+parser.add_argument('--weight_decay', type=float, default=2e-2, help='Weight decay for Adam optimizer')
 parser.add_argument('--patience', type=int, default=10, help='Patience for early stopping')
 parser.add_argument('--min_delta', type=float, default=0.01, help='Minimum change in validation loss for early stopping')
 
@@ -65,14 +65,14 @@ def get_model(args):
                     hidden_dim=args.hidden_dim,
                     lstm_dim=args.lstm_dim,
                     n_layers=args.n_layers,
-                    output_dim=args.ts_output_dim,
+                    output_dim=len(args.quantiles),
                     dropout=args.dropout)
     
     elif args.ts_model == 'cnn':
         ts_model = ConvNet(n_ts=args.window_size,
                            n_features=args.n_features,
                            n_channels=args.n_channels,
-                           out_dim=args.out_dim,
+                           out_dim=len(args.quantiles),
                            n_filters=args.n_filters,
                            dropout_p=args.cnn_dropout)
 
@@ -115,10 +115,11 @@ def generate_predictions(model, dl, loss_fn, results_dir):
     for station in np.unique(stations):
         idx = (stations==station)
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(preds[idx, -1], label='pred')
+        ax.plot(preds[idx, -2], label='pred')
         ax.plot(true[idx, -1], label='true')
-        mse_score[station] = mean_squared_error(true[idx, -1], preds[idx, -1])
-        nse_score[station] = nse(true[idx, -1], preds[idx, -1])
+        ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
+        mse_score[station] = mean_squared_error(true[idx, -1], preds[idx, -2])
+        nse_score[station] = nse(true[idx, -1], preds[idx, -2])
         nnse_score[station] = normalize(nse_score[station])
         plt.legend()
         plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}.png'))
@@ -134,6 +135,9 @@ if __name__ == '__main__':
     args = parser.parse_args()
     print(args)
 
+    # Quantiles
+    args.quantiles = tf.convert_to_tensor([0.05, 0.5, 0.95])
+
     # Production Storage
     prod = ProductionStorage()
 
@@ -146,7 +150,7 @@ if __name__ == '__main__':
     station_list = camels_ds.get_station_list()
     results_all = []
 
-    for station_id in station_list[:3]:
+    for station_id in station_list:
 
         # Assign state_outlet and map_zone
         args.station_id = [station_id]
@@ -173,7 +177,7 @@ if __name__ == '__main__':
                                             amsgrad=False)
 
         # Define loss function
-        loss_fn = tf.keras.losses.MeanSquaredError()
+        loss_fn = TiltedLossMultiQuantile(quantiles=args.quantiles)
 
         # Define early stopper
         early_stopper = EarlyStopper(patience=args.patience, min_delta=args.min_delta)
