@@ -1,9 +1,12 @@
 from __future__ import absolute_import
 
+import os
 import datetime as dt
 import time
 import numpy as np
 import pandas as pd
+import pickle
+
 from camels_aus.repository import CamelsAus
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
@@ -198,21 +201,38 @@ class CamelsDataset(object):
         # Load the data
         self.repo = CamelsAus()
         self.repo.load_from_text_files(data_dir)
+
+        # Scalers
+        self.ts_scaler = None
+        self.static_scaler = None
+        self.target_scaler = None
     
-    def get_station_list(self):
+    def get_station_list(self, state_outlet=None, map_zone=None):
+        if state_outlet is not None and map_zone is not None:
+            loc_df = self.repo.location_attributes.to_dataframe()
+            loc_df = loc_df[(loc_df['state_outlet']==state_outlet) & (loc_df['map_zone']==map_zone)]
+            return loc_df.reset_index().station_id.unique()
         return self.repo.location_attributes.to_dataframe().reset_index().station_id.unique()
 
     def get_zones(self):
         return self.repo.location_attributes.to_dataframe().reset_index()[['state_outlet', 'map_zone']].drop_duplicates().values
 
+
+    def load_scalers(self, filepath):
+        with open(filepath, 'rb') as f:
+            scalers = pickle.load(f)
+            self.ts_scaler = scalers['ts_scaler']
+            self.static_scaler = scalers['static_scaler']
+            self.target_scaler = scalers['target_scaler']
+            
     
     def prepare_data(self, station_list=None, state_outlet=None, map_zone=None):
 
         # Check if flow_cdf is in target_vars
         if 'flow_cdf' in self.target_vars:
             self.target_vars.remove('flow_cdf')
-            if 'streamflow_MLd_infilled' not in self.target_vars:
-                self.target_vars.append('streamflow_MLd_infilled')
+            if 'streamflow_mmd' not in self.target_vars:
+                self.target_vars.append('streamflow_mmd')
             self.compute_flow_cdf = True
 
         # # Timeseries data
@@ -257,28 +277,41 @@ class CamelsDataset(object):
         
         if self.compute_flow_cdf:
             self.targets = self.add_flow_cdf(self.targets)
-            self.targets.drop(columns=['streamflow_MLd_infilled'], inplace=True)
-            self.target_vars.remove('streamflow_MLd_infilled')
+            self.targets.drop(columns=['streamflow_mmd'], inplace=True)
+            self.target_vars.remove('streamflow_mmd')
             if 'flow_cdf' not in self.target_vars:
                 self.target_vars.append('flow_cdf')
 
         # Scalers
-        self.ts_scaler = StandardScaler()
-        self.static_scaler = StandardScaler()
-        self.target_scaler = StandardScaler()
+        if self.ts_scaler is None:
+            self.ts_scaler = StandardScaler()
+            self.static_scaler = StandardScaler()
+            self.target_scaler = StandardScaler()
 
-        # Scale
-        self.ts_data[self.ts_vars] = self.ts_scaler.fit_transform(self.ts_data[self.ts_vars])
-        self.static_data[self.streamflow_vars] = self.static_scaler.fit_transform(self.static_data[self.streamflow_vars])
-        self.targets[self.target_vars] = self.target_scaler.fit_transform(self.targets[self.target_vars])
+            # Scale
+            self.ts_data[self.ts_vars] = self.ts_scaler.fit_transform(self.ts_data[self.ts_vars])
+            self.static_data[self.streamflow_vars] = self.static_scaler.fit_transform(self.static_data[self.streamflow_vars])
+            self.targets[self.target_vars] = self.target_scaler.fit_transform(self.targets[self.target_vars])
+        
+        else:
+            self.ts_data[self.ts_vars] = self.ts_scaler.transform(self.ts_data[self.ts_vars])
+            self.static_data[self.streamflow_vars] = self.static_scaler.transform(self.static_data[self.streamflow_vars])
+            self.targets[self.target_vars] = self.target_scaler.transform(self.targets[self.target_vars])
+
+
+    def save_scalers(self, path):
+        path = os.path.join(path, 'scalers.pkl')
+        with open(path, 'wb') as f:
+            pickle.dump({'ts_scaler': self.ts_scaler, 'static_scaler': self.static_scaler, 'target_scaler': self.target_scaler}, f)
+
         
     
     def add_flow_cdf(self, target_data):
         target_data_updated = []
         for station_id in self.station_list:
             df = target_data[target_data.station_id == station_id].set_index('time')
-            if 'streamflow_MLd_infilled' in self.target_vars:
-                flow_values = df.streamflow_MLd_infilled.dropna().sort_values(ascending=True)
+            if 'streamflow_mmd' in self.target_vars:
+                flow_values = df['streamflow_mmd'].dropna().sort_values(ascending=True)
             else:
                 flow_values = df.streamflow_mmd.dropna().sort_values(ascending=True)
             flow_cdf = (np.arange(len(flow_values))+1)/(len(flow_values) + 1)

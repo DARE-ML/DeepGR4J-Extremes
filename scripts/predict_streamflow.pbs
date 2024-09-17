@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#PBS -N predict_flow
+#PBS -l select=1:ncpus=4:mem=46gb:ngpus=1
+#PBS -l walltime=2:00:00 
+#PBS -M arpit.kapoor@unsw.edu.au 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /home/z5370003/logs/predict_flow.log
+
+cd $PBS_O_WORKDIR
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python predict_streamflow.py

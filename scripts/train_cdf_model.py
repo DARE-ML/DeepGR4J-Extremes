@@ -171,8 +171,8 @@ if __name__ == '__main__':
 
         # Prepare data
         camels_ds.prepare_data(station_list=args.station_id,
-                            state_outlet=args.state_outlet,
-                            map_zone=args.map_zone)
+                                state_outlet=args.state_outlet,
+                                map_zone=args.map_zone)
         
         # Get datasets
         train_ds, test_ds = camels_ds.get_datasets()
@@ -197,7 +197,7 @@ if __name__ == '__main__':
         early_stopper = EarlyStopper(patience=args.patience, min_delta=args.min_delta)
 
         # Define trainer
-        trainer = Trainer(model, optimizer, loss_fn, early_stopper)
+        trainer = Trainer(model, optimizer, loss_fn=loss_fn, early_stopper=early_stopper, model_type='ensemble')
 
         # Train model
         model, train_losses, test_losses = trainer.train(train_ds, test_ds, args)
@@ -231,4 +231,14 @@ if __name__ == '__main__':
         ax.plot(test_losses, label='test')
         plt.legend()
         plt.savefig(os.path.join(results_dir, 'losses.png'))
+
+        # Save model
+        tf.keras.models.save_model(model, os.path.join(results_dir, 'model.keras'), overwrite=True)
+        print(f"Model saved to {results_dir}")
+
+        # Save scalers
+        camels_ds.save_scalers(results_dir)
+        print(f"Scalers saved to {results_dir}")
+
+
         

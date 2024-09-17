@@ -152,6 +152,9 @@ if __name__ == '__main__':
 
     for station_id in station_list:
 
+        if station_id.encode().decode('utf-8') not in ['102101A', '104001A']:
+            continue
+
         # Assign state_outlet and map_zone
         args.station_id = [station_id]
 
@@ -223,6 +226,16 @@ if __name__ == '__main__':
         results['station_id'] = results['station_id'].apply(lambda x: x.decode('utf-8'))
 
         results_all.append(results)
+
+        # Save model
+        model_path = os.path.join(results_dir, 'model', station_id.encode().decode('utf-8'))
+        os.makedirs(model_path, exist_ok=True)
+        # model.save(os.path.join(model_path, 'model.keras'))
+        tf.keras.models.save_model(model, os.path.join(model_path, 'model.keras'), overwrite=True)
+        prod.save(os.path.join(model_path, 'prod.keras'))
+
+        # Save scalers
+        camels_ds.save_scalers(os.path.join(model_path))
     
     results = pd.concat(results_all)
     results.to_csv(os.path.join(results_dir, 'results.csv'))
@@ -237,4 +250,6 @@ if __name__ == '__main__':
     ax.plot(test_losses, label='test')
     plt.legend()
     plt.savefig(os.path.join(results_dir, 'losses.png'))
+
+
         
