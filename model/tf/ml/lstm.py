@@ -26,15 +26,16 @@ class LSTM(tf.keras.Model):
         # RNN layer
         self.lstm_layer = tf.keras.layers.LSTM(self.lstm_dim, 
                                                 return_sequences=True,
-                                                return_state=True)
+                                                return_state=True,
+                                                name='lstm_layer')
 
         # Flatten layer
         self.flatten = tf.keras.layers.Flatten()
 
         # Fully-connected output layer
-        self.fc1 = tf.keras.layers.Dense(self.hidden_dim)
+        self.fc1 = tf.keras.layers.Dense(self.hidden_dim, name='dense_hidden')
 
-        self.fc2 = tf.keras.layers.Dense(self.output_dim)
+        self.fc2 = tf.keras.layers.Dense(self.output_dim, name='dense_out')
 
         self.do = tf.keras.layers.Dropout(dropout)
 

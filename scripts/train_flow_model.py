@@ -115,9 +115,12 @@ def generate_predictions(model, dl, loss_fn, results_dir):
     for station in np.unique(stations):
         idx = (stations==station)
         fig, ax = plt.subplots(figsize=(10, 6))
-        ax.plot(preds[idx, -2], label='pred')
-        ax.plot(true[idx, -1], label='true')
-        ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
+        n_outputs = preds.shape[-1]
+        ax.plot(true[idx, -1], label=f"True")
+        if n_outputs > 1:
+            for i in range(n_outputs):
+                ax.plot(preds[idx, i], label=f"Pred {i}")
+            ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
         mse_score[station] = mean_squared_error(true[idx, -1], preds[idx, -2])
         nse_score[station] = nse(true[idx, -1], preds[idx, -2])
         nnse_score[station] = normalize(nse_score[station])
@@ -136,7 +139,7 @@ if __name__ == '__main__':
     print(args)
 
     # Quantiles
-    args.quantiles = tf.convert_to_tensor([0.05, 0.5, 0.95])
+    args.quantiles = tf.convert_to_tensor([0.05, 0.25, 0.5, 0.75, 0.95])
 
     # Production Storage
     prod = ProductionStorage()
@@ -150,10 +153,9 @@ if __name__ == '__main__':
     station_list = camels_ds.get_station_list()
     results_all = []
 
-    for station_id in station_list:
+ 
 
-        if station_id.encode().decode('utf-8') not in ['102101A', '104001A']:
-            continue
+    for station_id in station_list:
 
         # Assign state_outlet and map_zone
         args.station_id = [station_id]
@@ -165,7 +167,6 @@ if __name__ == '__main__':
         
         # Get datasets
         train_ds, test_ds = camels_ds.get_datasets()
-        print(camels_ds.station_list)
 
         # Get model
         model = get_model(args)
@@ -231,8 +232,8 @@ if __name__ == '__main__':
         model_path = os.path.join(results_dir, 'model', station_id.encode().decode('utf-8'))
         os.makedirs(model_path, exist_ok=True)
         # model.save(os.path.join(model_path, 'model.keras'))
-        tf.keras.models.save_model(model, os.path.join(model_path, 'model.keras'), overwrite=True)
-        prod.save(os.path.join(model_path, 'prod.keras'))
+        model.save_weights(os.path.join(model_path, 'flow_model.weights.h5'), overwrite=True)
+        prod.save_weights(os.path.join(model_path, 'prod.weights.h5'), overwrite=True)
 
         # Save scalers
         camels_ds.save_scalers(os.path.join(model_path))

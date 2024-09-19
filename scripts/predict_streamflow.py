@@ -56,10 +56,10 @@ flow_target_vars = ['streamflow_mmd']
 
 
 # Directories
-camels_data_dir = '../../data/camels/aus/'
-gr4j_results_dir = '../results/gr4j/'
-cdf_results_dir = '../results/flow_cdf_saved/'
-deepgr4j_results_dir = '../results/qdeepgr4j_saved/aus/'
+camels_data_dir = '../../data/camels/aus'
+gr4j_results_dir = '../results/gr4j'
+cdf_results_dir = '../results/flow_cdf_saved'
+deepgr4j_results_dir = '../results/qdeepgr4j_5q/aus'
 gr4j_results_path = f'{gr4j_results_dir}/result.csv'
 
 
@@ -114,7 +114,7 @@ def get_ensemble_model():
 
 
 
-def generate_cdf_preds(model, dl, results_dir='../results/predictions'):
+def generate_cdf_preds(model, dl, results_dir='../results/predictions_5q'):
     
     preds = []
     true = []
@@ -168,7 +168,7 @@ def generate_flow_preds(model, dl, results_dir='../results/predictions'):
 
     # Plot results
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(preds[:, -2], label='pred', c='red')
+    ax.plot(preds[:, int(preds.shape[-1]//2)], label='pred', c='red')
     ax.plot(true[:, -1], label='true', c='black')
     ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
     plt.legend()
@@ -182,14 +182,21 @@ def generate_flow_preds(model, dl, results_dir='../results/predictions'):
     return mse_score, nse_score, nnse_score, preds, true
 
 
-def index_from_quantiles(values):
-    indices = np.ones_like(values)
-    indices[values >= 0.95] = 2
-    indices[values <= 0.05] = 0
-    return indices.astype(int).flatten()
-
-def select_by_index(index_array, values_array):
-    selected_values = values_array[np.arange(len(index_array)), index_array]
+def select_by_quantiles(values_array, quantiles):
+    indices = np.ones_like(quantiles)
+    if values_array.shape[-1] == 3:
+        indices[quantiles > 0.95] = 2
+        indices[(quantiles <= 0.95) & (quantiles > 0.05)] = 1
+        indices[quantiles <= 0.05] = 0
+        indices = indices.astype(int).flatten()
+    elif values_array.shape[-1] == 5:
+        indices[(quantiles > 0.75)] = 4
+        indices[(quantiles <= 0.75) & (quantiles > 0.50)] = 3
+        indices[(quantiles <= 0.50) & (quantiles > 0.25)] = 2
+        indices[(quantiles <= 0.25) & (quantiles > 0.05)] = 1
+        indices[(quantiles <= 0.05)] = 0
+    indices = indices.astype(int).flatten()
+    selected_values = values_array[np.arange(len(indices)), indices]
     return selected_values
 
 
@@ -258,11 +265,16 @@ if __name__ == '__main__':
                             output_dim=len(flow_quantiles),
                             dropout=flow_dropout)
 
-            hybrid_ds.load_scalers(flow_data_scaler_path)
-            hybrid_ds.prepare_data(station_list=[station_id])
+            try:
+                hybrid_ds.load_scalers(flow_data_scaler_path)
+                hybrid_ds.prepare_data(station_list=[station_id])
+            except:
+                continue
             hybrid_train_ds, hybrid_test_ds = hybrid_ds.get_datasets()
 
             # Load flow model weights
+            flow_model.summary()
+            print(flow_model_path)
             flow_model.load_weights(flow_model_path)
             generate_flow_preds(flow_model, hybrid_test_ds.batch(256))
             flow_model.load_weights(flow_model_path)
@@ -276,8 +288,7 @@ if __name__ == '__main__':
 
 
             # Corrected preds using flow CDF
-            idx = index_from_quantiles(cdf_preds)
-            flowpreds = select_by_index(idx, qpreds)
+            flowpreds = select_by_quantiles(qpreds, cdf_preds)
             mse_score_corrected = mean_squared_error(true.flatten(), flowpreds)
             nse_score_corrected = nse(true.flatten(), flowpreds)
             nnse_score_corrected = normalize(nse(true.flatten(), flowpreds))
