@@ -5,15 +5,19 @@ import torch.nn as nn
 
 class LSTM(tf.keras.Model):
 
-    def __init__(self, input_dim, lstm_dim, hidden_dim, output_dim, n_layers, dropout=0.5):
+    def __init__(self, window_size, input_dim, lstm_dim, hidden_dim, output_dim, n_layers, dropout=0.5):
                 
         super().__init__()
+
+        # Window Size
+        # self.window_size = window_size
 
         # Input Dims
         self.input_dim = input_dim
 
-        # LSTM hidden dims
+        # LSTM Dims
         self.lstm_dim = lstm_dim
+        self.n_layers = n_layers
 
         # Hidden Dims
         self.hidden_dim = hidden_dim
@@ -21,7 +25,8 @@ class LSTM(tf.keras.Model):
         # Output Dims
         self.output_dim = output_dim
 
-        self.n_layers = n_layers
+        # Input layer
+        # self.input_layer = tf.keras.layers.InputLayer(shape=(window_size, self.input_dim))
 
         # RNN layer
         self.lstm_layer = tf.keras.layers.LSTM(self.lstm_dim, 
@@ -47,17 +52,11 @@ class LSTM(tf.keras.Model):
         # Validate input shape
         assert len(x.shape)==3, f"Expected input to be 3-dim, got {len(x.shape)}"
 
-        # Get dimensions of the input
-        batch_size, seq_size, input_size = x.shape
-
-        # Initialize hidden_state
-        # hidden, cell = self.init_zero_hidden(batch_size)
-
         # Pass through the recurrent layer
+        # x = self.input_layer(x)
         out, _, _ = self.lstm_layer(x)
 
         # Reshaping the outputs such that it can be fit into the fully connected layer
-        # out = tf.reshape(out[:, -2:, :], [batch_size, -1])
         out = self.flatten(out[:, -3:, :])
         out = tf.tanh(out)
         out = self.do(out)

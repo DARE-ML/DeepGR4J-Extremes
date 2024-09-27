@@ -10,4 +10,4 @@
 
 cd $PBS_O_WORKDIR
 
-/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_cdf_model.py --learning_rate 1e-4 --batch_size 1024 --window_size 8 --dropout 0.2 --epochs 400 --target_vars flow_cdf --results_dir ../results/flow_cdf_saved
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_cdf_model.py --learning_rate 1e-4 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 400 --target_vars flow_cdf --results_dir ../results/flow_cdf_saved_w7

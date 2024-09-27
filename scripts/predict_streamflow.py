@@ -15,106 +15,73 @@ from sklearn.metrics import mean_squared_error
 root_dir = '/srv/scratch/z5370003/projects/DeepGR4J-Extremes'
 sys.path.append(root_dir)
 
-from model.tf.ml import ConvNet, LSTM
+from model.tf.ml import ConvNet, LSTM, get_mixed_model
 from model.tf.hydro import ProductionStorage
 from data.tf.camels_dataset import CamelsDataset, HybridDataset
 from utils.evaluation import nse, normalize
 
 
-
-window_size = 8
+# Window size
+cdf_window_size = 8
+flow_window_size = 8
 
 # CDF TS Model Parameters
 cdf_ts_model_name = 'lstm'
-cdf_ts_input_dim = 6
-cdf_ts_hidden_dim = 32
-cdf_ts_output_dim = 8
-cdf_ts_lstm_dim = 64
-cdf_ts_n_layers = 4
-cdf_dropout = 0.2
-# For CNN
-cdf_ts_n_channels = 1
-cdf_ts_n_filters = [16, 16, 8]
+
+cdf_lstm_config = {
+    'n_steps': cdf_window_size,
+    'input_dim': 6,
+    'hidden_dim': 32,
+    'output_dim': 8,
+    'lstm_dim': 64,
+    'n_layers': 4,
+    'dropout': 0.2
+}
+
+cdf_cnn_config = {
+    'n_steps': cdf_window_size,
+    'n_features': 6,
+    'n_channels': 1,
+    'output_dim': 8,
+    'n_filters': [16, 16, 8],
+    'dropout': 0.2
+}
 
 # CDF Static model parameters
-cdf_static_input_dim = 7
-cdf_static_hidden_dim = 64
-cdf_static_output_dim = 8
+cdf_static_config = {
+    'input_dim': 7,
+    'hidden_dim': 64,
+    'output_dim': 8
+}
 
 # CDF Combined model parameters
 cdf_combined_hidden_dim = 64
 cdf_target_vars = ['flow_cdf']
+cdf_output_dim = len(cdf_target_vars)
 
 # Quantile NN model
-flow_input_dim = 6
+flow_input_dim = 10
 flow_hidden_dim = 32
 flow_lstm_dim = 64
 flow_n_layers = 4
 flow_dropout = 0.2
-flow_quantiles = [0.05, 0.5, 0.95]
+flow_quantiles = [0.05, 0.25, 0.5, 0.75, 0.95]
 flow_target_vars = ['streamflow_mmd']
+
 
 
 # Directories
 camels_data_dir = '../../data/camels/aus'
 gr4j_results_dir = '../results/gr4j'
-cdf_results_dir = '../results/flow_cdf_saved'
-deepgr4j_results_dir = '../results/qdeepgr4j_5q/aus'
+cdf_results_dir = '../results/flow_cdf_saved_w8'
+deepgr4j_results_dir = '../results/qdeepgr4j_5q_w8/aus'
 gr4j_results_path = f'{gr4j_results_dir}/result.csv'
+results_dir = '../results/prediction_5q_w8'
 
 
 
-def get_ensemble_model():
-    if cdf_ts_model_name == 'lstm':
-        ts_model = LSTM(input_dim=cdf_ts_input_dim,
-                    hidden_dim=cdf_ts_hidden_dim,
-                    lstm_dim=cdf_ts_lstm_dim,
-                    n_layers=cdf_ts_n_layers,
-                    output_dim=cdf_ts_output_dim,
-                    dropout=cdf_dropout)
-    
-    elif cdf_ts_model_name == 'cnn':
-        ts_model = ConvNet(n_ts=window_size,
-                           n_features=cdf_ts_input_dim,
-                           n_channels=cdf_ts_n_channels,
-                           out_dim=cdf_ts_output_dim,
-                           n_filters=cdf_ts_n_filters,
-                           dropout_p=cdf_dropout)
 
-    static_model = tf.keras.Sequential([
-                        tf.keras.layers.Dense(cdf_static_hidden_dim, activation='tanh'),
-                        tf.keras.layers.Dense(cdf_static_hidden_dim, activation='tanh'),
-                        tf.keras.layers.Dense(cdf_static_output_dim, activation='relu')
-                    ])
-
-    # Define input layers
-    if cdf_ts_model_name == 'lstm':
-        timeseries = tf.keras.Input(shape=(window_size, cdf_ts_input_dim), name='timeseries')
-    elif cdf_ts_model_name == 'cnn':
-        timeseries = tf.keras.Input(shape=(window_size, cdf_ts_input_dim, 1), name='timeseries')
-    else:
-        print(cdf_ts_model_name)
-    static = tf.keras.Input(shape=(cdf_static_input_dim,), name='static')
-
-    # Combine inputs
-    relu = tf.keras.layers.Activation('relu')
-    ts_hidden = relu(ts_model(timeseries))
-    static_hidden = static_model(static)
-    concatenated = tf.keras.layers.Concatenate()([ts_hidden, static_hidden])
-
-    # Dense model
-    hidden = tf.keras.layers.Dense(cdf_combined_hidden_dim, activation='tanh')(concatenated)
-    hidden = tf.keras.layers.Dense(cdf_combined_hidden_dim, activation='tanh')(hidden)
-    output = tf.keras.layers.Dense(len(cdf_target_vars), activation='linear')(hidden)
-
-    # Combined model
-    model_combined = tf.keras.Model(inputs=[timeseries, static],
-                                    outputs=output)
-    return model_combined
-
-
-
-def generate_cdf_preds(model, dl, results_dir='../results/predictions_5q'):
+def generate_cdf_preds(model, dl, results_dir='../results/predictions'):
     
     preds = []
     true = []
@@ -167,16 +134,17 @@ def generate_flow_preds(model, dl, results_dir='../results/predictions'):
     preds = np.clip(preds, 0, None)
 
     # Plot results
+    median_index = int(preds.shape[-1]//2)
     fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(preds[:, int(preds.shape[-1]//2)], label='pred', c='red')
+    ax.plot(preds[:, median_index], label='pred', c='red')
     ax.plot(true[:, -1], label='true', c='black')
     ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
     plt.legend()
     fig.savefig(f'{results_dir}/flow_preds.png', bbox_inches='tight')
     
     # Calculate scores
-    mse_score = mean_squared_error(true[:, -1], preds[:, -2])
-    nse_score = nse(true[:, -1], preds[:, -2])
+    mse_score = mean_squared_error(true[:, -1], preds[:, median_index])
+    nse_score = nse(true[:, -1], preds[:, median_index])
     nnse_score = normalize(nse_score)
     
     return mse_score, nse_score, nnse_score, preds, true
@@ -208,7 +176,7 @@ if __name__ == '__main__':
     # CDF Dataset
     camels_ds = CamelsDataset(data_dir=camels_data_dir, 
                             target_vars=cdf_target_vars,
-                            window_size=window_size)
+                            window_size=cdf_window_size)
     
     zone_list = camels_ds.get_zones()
 
@@ -223,7 +191,7 @@ if __name__ == '__main__':
         camels_ds.load_scalers(cdf_data_scaler_path)
 
         # Load CDF model for the zone
-        cdf_model = get_ensemble_model()
+        cdf_model = get_mixed_model(cdf_ts_model_name, cdf_lstm_config, cdf_static_config, cdf_combined_hidden_dim, cdf_output_dim)
         cdf_model.load_weights(cdf_model_path)
         cdf_model.summary()
 
@@ -231,21 +199,22 @@ if __name__ == '__main__':
         station_list = camels_ds.get_station_list(state_outlet=state_outlet, map_zone=map_zone)
 
         for station_id in station_list:
+
+            # if station_id != '102101A':
+            #     continue
     
             print(f'Running predictions for {station_id}')
             flow_data_scaler_path = f'{deepgr4j_results_dir}/model/{station_id}/scalers.pkl'
-            flow_model_path = f'{deepgr4j_results_dir}/model/{station_id}/model.keras'
-            results_dir = f'../results/predictions/{station_id}'
-            os.makedirs(results_dir, exist_ok=True)
+            flow_model_path = f'{deepgr4j_results_dir}/model/{station_id}/flow_model.weights.h5'
+            station_results_dir = f'{results_dir}/{station_id}'
+            os.makedirs(station_results_dir, exist_ok=True)
 
             # Prepare flow CDF data
             print('Preparing CDF data')
             camels_ds.prepare_data(station_list=[station_id])
             cdf_train_ds, cdf_test_ds = camels_ds.get_datasets()
-
-            # Generate CDF predictions
             print('Generating CDF predictions')
-            _, cdf_preds = generate_cdf_preds(cdf_model, cdf_test_ds.batch(256), results_dir=results_dir)
+            _, cdf_preds = generate_cdf_preds(cdf_model, cdf_test_ds.batch(256), results_dir=station_results_dir)
 
 
             # Quantile NN model
@@ -253,17 +222,23 @@ if __name__ == '__main__':
             prod = ProductionStorage()
 
             hybrid_ds = HybridDataset(data_dir=camels_data_dir,
-                                    gr4j_logfile=gr4j_results_path,
-                                    prod=prod,
-                                    window_size=window_size,
-                                    target_vars=flow_target_vars)
+                                      gr4j_logfile=gr4j_results_path,
+                                      prod=prod,
+                                      window_size=flow_window_size,
+                                      target_vars=flow_target_vars)
 
-            flow_model = LSTM(input_dim=flow_input_dim,
-                            hidden_dim=flow_hidden_dim,
-                            lstm_dim=flow_lstm_dim,
-                            n_layers=flow_n_layers,
-                            output_dim=len(flow_quantiles),
-                            dropout=flow_dropout)
+            flow_model = LSTM(window_size=flow_window_size,
+                              input_dim=flow_input_dim,
+                              hidden_dim=flow_hidden_dim,
+                              lstm_dim=flow_lstm_dim,
+                              n_layers=flow_n_layers,
+                              output_dim=len(flow_quantiles),
+                              dropout=flow_dropout)
+
+            # Load flow model weights
+            flow_model(tf.random.uniform(shape=(5, flow_window_size, flow_input_dim)))
+            flow_model.summary()
+            flow_model.load_weights(flow_model_path)
 
             try:
                 hybrid_ds.load_scalers(flow_data_scaler_path)
@@ -272,19 +247,12 @@ if __name__ == '__main__':
                 continue
             hybrid_train_ds, hybrid_test_ds = hybrid_ds.get_datasets()
 
-            # Load flow model weights
-            flow_model.summary()
-            print(flow_model_path)
-            flow_model.load_weights(flow_model_path)
-            generate_flow_preds(flow_model, hybrid_test_ds.batch(256))
-            flow_model.load_weights(flow_model_path)
-            flow_model.summary()
 
             # Generate flow predictions
             print('Generating flow predictions')
-            res = generate_flow_preds(flow_model, hybrid_test_ds.batch(256), results_dir=results_dir)
+            res = generate_flow_preds(flow_model, hybrid_test_ds.batch(256), results_dir=station_results_dir)
             mse_score, nse_score, nnse_score, qpreds, true = res
-            print(f'MSE: {mse_score}, NSE: {nse_score}, NNSE: {nnse_score}')
+            print(f'\nMSE: {mse_score:.4f}, NSE: {nse_score:.4f}, NNSE: {nnse_score:.4f}')
 
 
             # Corrected preds using flow CDF
@@ -294,7 +262,7 @@ if __name__ == '__main__':
             nnse_score_corrected = normalize(nse(true.flatten(), flowpreds))
             nse_score_corrected, nnse_score_corrected
 
-            print(f'Corrected NSE: {nse_score_corrected}, Corrected NNSE: {nnse_score_corrected}')
+            print(f'\nCorrected MSE: {mse_score_corrected:.4f} Corrected NSE: {nse_score_corrected:.4f}, Corrected NNSE: {nnse_score_corrected:.4f}')
 
             results_all.append({
                 'station_id': station_id,
@@ -307,5 +275,5 @@ if __name__ == '__main__':
             })
 
     results_df = pd.DataFrame(results_all)
-    results_df.to_csv('../results/predictions/results.csv', index=False)
+    results_df.to_csv(os.path.join(results_dir, 'results.csv'), index=False)
 

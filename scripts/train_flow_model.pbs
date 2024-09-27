@@ -1,13 +1,16 @@
 #!/bin/bash
 
-#PBS -N flow_model
-#PBS -l select=1:ncpus=4:mem=46gb:ngpus=1
-#PBS -l walltime=6:00:00 
+#PBS -N deepgr4j_lstm
+#PBS -l select=1:ncpus=8:mem=64gb
+#PBS -l walltime=8:00:00 
 #PBS -M arpit.kapoor@unsw.edu.au 
 #PBS -m ae
 #PBS -j oe
-#PBS -o /home/z5370003/logs/flow_1.log
+#PBS -o /home/z5370003/logs/deepgr4j_lstm.log
 
 cd $PBS_O_WORKDIR
 
-/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --learning_rate 1e-3 --batch_size 256 --window_size 8 --dropout 0.2 --epochs 500 --results_dir ../results/qdeepgr4j_5q
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --ts_model lstm --min_delta 0.001 --patience 5  --results_dir ../results/deepgr4j_lstm_w7
+
+
+#/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --ts_model cnn --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 300 --weight_decay 0.04  --min_delta 0.001 --patience 5 --results_dir ../results/deepgr4j_cnn_w7 --n_filters 8 8 6 

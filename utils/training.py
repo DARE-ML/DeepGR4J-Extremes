@@ -109,7 +109,7 @@ class Trainer:
                 elif self.model_type == 'ensemble':
                     x_batch_train = [batch_train['timeseries'] , batch_train['static']]
                 y_batch_train = batch_train['target']
-
+                
                 # Train on batch
                 loss_value = self.train_step(x_batch_train, y_batch_train)
                 

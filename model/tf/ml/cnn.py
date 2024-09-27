@@ -21,11 +21,11 @@ class ConvNet(tf.keras.Model):
                                     activation='relu')
         
         self.conv_2 = layers.Conv2D(filters=n_filters[1],
-                                    kernel_size=(1, 2),
+                                    kernel_size=(3, 3),
                                     bias_initializer=tf.keras.initializers.Zeros(),
                                     activation='relu')
 
-        self.max_pool = layers.MaxPooling2D(pool_size=(2, 2))
+        self.max_pool = layers.MaxPooling2D(pool_size=(2, 1))
 
         self.conv_3 = layers.Conv2D(filters=n_filters[2],
                                     kernel_size=(2, 2),

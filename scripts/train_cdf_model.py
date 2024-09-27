@@ -14,43 +14,46 @@ from sklearn.metrics import mean_squared_error
 root_dir = '/srv/scratch/z5370003/projects/DeepGR4J-Extremes'
 sys.path.append(root_dir)
 
-from model.tf.ml import ConvNet, LSTM
+from model.tf.ml import ConvNet, LSTM, get_mixed_model
 from data.tf.camels_dataset import CamelsDataset
 from utils.training import EarlyStopper, Trainer
 
 # Create argument parser
 parser = argparse.ArgumentParser(description='Train Flow CDF Model')
 
-# Add arguments
-parser.add_argument('--window_size', type=int, default=10, help='Size of the sliding window')
+# Data processing parameters
 parser.add_argument('--camels_dir', type=str, default='../../data/camels/aus', help='Directory containing CAMELS dataset')
 parser.add_argument('--target_vars', type=str, nargs='+', default=['flow_cdf'], help='Target variables')
-parser.add_argument('--station_id', type=str, nargs='+', default=None, help='Target variables')
-parser.add_argument('--results_dir', type=str, default='../results/flow_cdf', help='Directory to save results')
 parser.add_argument('--state_outlet', type=str, default=None, help='State outlet')
 parser.add_argument('--map_zone', type=int, default=None, help='Map zone')
+parser.add_argument('--station_id', type=str, nargs='+', default=None, help='Target variables')
+parser.add_argument('--window_size', type=int, default=10, help='Size of the sliding window')
+parser.add_argument('--results_dir', type=str, default='../results/flow_cdf', help='Directory to save results')
 parser.add_argument('--ts_model', type=str, default='lstm', help='Time series model')
 
-parser.add_argument('--ts_input_dim', type=int, default=6, help='Input dimension for LSTM')
-parser.add_argument('--hidden_dim', type=int, default=32, help='Hidden dimension for LSTM')
-parser.add_argument('--lstm_dim', type=int, default=64, help='LSTM dimension')
-parser.add_argument('--n_layers', type=int, default=4, help='Number of LSTM layers')
-parser.add_argument('--ts_output_dim', type=int, default=8, help='Output dimension for LSTM')
-parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate for LSTM')
+# Timeseries model parameters
+parser.add_argument('--ts_input_dim', type=int, default=6, help='Input dimension for timeseries model')
+parser.add_argument('--ts_output_dim', type=int, default=8, help='Output dimension for timeseries model')
+parser.add_argument('--ts_dropout', type=float, default=0.2, help='Dropout rate for timeseries model')
 
+# LSTM model parameters
+parser.add_argument('--ts_hidden_dim', type=int, default=32, help='Hidden dimension for LSTM timeseries model')
+parser.add_argument('--ts_lstm_dim', type=int, default=64, help='LSTM dimensions')
+parser.add_argument('--ts_n_layers', type=int, default=4, help='Number of LSTM layers')
+
+# CNN model parameters
+parser.add_argument('--ts_n_channels', type=int, default=1, help='Number of input channels for CNN timeseries model')
+parser.add_argument('--ts_n_filters', type=int, nargs='+', default=[16, 16, 8], help='Number of filters for CNN timeseries model')
+
+# Static model parameters
 parser.add_argument('--static_input_dim', type=int, default=7, help='Input dimension for static model')
 parser.add_argument('--static_hidden_dim', type=int, default=64, help='Hidden dimension for static model')
 parser.add_argument('--static_output_dim', type=int, default=8, help='Output dimension for static model')
 
+# Combined model parameters
 parser.add_argument('--combined_hidden_dim', type=int, default=64, help='Hidden dimension for combined model')
 
-parser.add_argument('--n_ts', type=int, default=10, help='Number of time steps')
-parser.add_argument('--n_features', type=int, default=6, help='Number of features')
-parser.add_argument('--n_channels', type=int, default=1, help='Number of channels')
-parser.add_argument('--out_dim', type=int, default=1, help='Output dimension')
-parser.add_argument('--n_filters', type=int, nargs='+', default=[16, 16, 8], help='Number of filters for CNN')
-parser.add_argument('--cnn_dropout', type=float, default=0.1, help='Dropout rate for CNN')
-
+# Training parameters
 parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs')
 parser.add_argument('--verbose', type=int, default=1, help='Verbosity level')
@@ -60,53 +63,6 @@ parser.add_argument('--beta_2', type=float, default=0.997, help='Beta 2 for Adam
 parser.add_argument('--weight_decay', type=float, default=1e-2, help='Weight decay for Adam optimizer')
 parser.add_argument('--patience', type=int, default=10, help='Patience for early stopping')
 parser.add_argument('--min_delta', type=float, default=0.01, help='Minimum change in validation loss for early stopping')
-
-
-
-def get_model(args):
-    if args.ts_model == 'lstm':
-        ts_model = LSTM(input_dim=args.ts_input_dim,
-                    hidden_dim=args.hidden_dim,
-                    lstm_dim=args.lstm_dim,
-                    n_layers=args.n_layers,
-                    output_dim=args.ts_output_dim,
-                    dropout=args.dropout)
-    
-    elif args.ts_model == 'cnn':
-        ts_model = ConvNet(n_ts=args.window_size,
-                           n_features=args.n_features,
-                           n_channels=args.n_channels,
-                           out_dim=args.out_dim,
-                           n_filters=args.n_filters,
-                           dropout_p=args.cnn_dropout)
-
-    static_model = tf.keras.Sequential([
-                        tf.keras.layers.Dense(args.static_hidden_dim, activation='tanh'),
-                        tf.keras.layers.Dense(args.static_hidden_dim, activation='tanh'),
-                        tf.keras.layers.Dense(args.static_output_dim, activation='relu')
-                    ])
-
-    # Define input layers
-    if args.ts_model == 'lstm':
-        timeseries = tf.keras.Input(shape=(args.window_size, args.ts_input_dim), name='timeseries')
-    elif args.ts_model == 'cnn':
-        timeseries = tf.keras.Input(shape=(args.window_size, args.ts_input_dim, 1), name='timeseries')
-    static = tf.keras.Input(shape=(args.static_input_dim,), name='static')
-
-    # Combine inputs
-    relu = tf.keras.layers.Activation('relu')
-    ts_hidden = relu(ts_model(timeseries))
-    static_hidden = static_model(static)
-    concatenated = tf.keras.layers.Concatenate()([ts_hidden, static_hidden])
-
-    # Dense model
-    hidden = tf.keras.layers.Dense(args.combined_hidden_dim, activation='tanh')(concatenated)
-    hidden = tf.keras.layers.Dense(args.combined_hidden_dim, activation='tanh')(hidden)
-    output = tf.keras.layers.Dense(len(args.target_vars), activation='linear')(hidden)
-
-    model_combined = tf.keras.Model(inputs=[timeseries, static],
-                                    outputs=output)
-    return model_combined
 
 
 
@@ -150,12 +106,51 @@ def plot_timeseries(model, dl, loss_fn, results_dir):
     return mse_error
 
 
+def get_ts_model_config(args):
+    if args.ts_model == 'lstm':
+        ts_model_config = {
+            'window_size': args.window_size,
+            'input_dim': args.ts_input_dim,
+            'output_dim': args.ts_output_dim,
+            'hidden_dim': args.ts_hidden_dim,
+            'lstm_dim': args.ts_lstm_dim,
+            'n_layers': args.ts_n_layers,
+            'dropout': args.ts_dropout
+        }
+    elif args.ts_model == 'cnn':
+        ts_model_config = {
+            'n_ts': args.winfow_size,
+            'input_dim': args.ts_input_dim,
+            'output_dim': args.ts_output_dim,
+            'n_channels': args.ts_n_channels,
+            'n_filters': args.ts_n_filters,
+            'dropout': args.ts_dropout
+        }
+    else:
+        raise ValueError(f"Invalid timeseries model: {args.ts_model}")
+    
+    return ts_model_config
+
+
+
+
 
 if __name__ == '__main__':
     
     # Parse arguments
     args = parser.parse_args()
     print(args)
+
+    # Get timeseries model config
+    ts_model_config = get_ts_model_config(args)
+
+    # Define static model config
+    static_model_config = {
+        'input_dim': args.static_input_dim,
+        'hidden_dim': args.static_hidden_dim,
+        'output_dim': args.static_output_dim
+    }
+    output_dim = len(args.target_vars)
 
     # Load dataset
     camels_ds = CamelsDataset(data_dir=args.camels_dir, 
@@ -178,8 +173,10 @@ if __name__ == '__main__':
         train_ds, test_ds = camels_ds.get_datasets()
         print(camels_ds.station_list)
 
-        # Get model
-        model = get_model(args)
+
+        model = get_mixed_model(args.ts_model, ts_model_config,
+                                static_model_config, combined_hidden_dim,
+                                output_dim)
         model.summary()
 
         # Define optimizer
@@ -197,7 +194,9 @@ if __name__ == '__main__':
         early_stopper = EarlyStopper(patience=args.patience, min_delta=args.min_delta)
 
         # Define trainer
-        trainer = Trainer(model, optimizer, loss_fn=loss_fn, early_stopper=early_stopper, model_type='ensemble')
+        trainer = Trainer(model, optimizer, loss_fn=loss_fn, 
+                          early_stopper=early_stopper, 
+                          model_type='ensemble')
 
         # Train model
         model, train_losses, test_losses = trainer.train(train_ds, test_ds, args)

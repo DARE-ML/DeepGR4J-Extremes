@@ -179,7 +179,7 @@ class CamelsDataset(object):
     streamflow_vars = ['q_mean', 'stream_elas', 'runoff_ratio', 'high_q_freq',
                        'high_q_dur', 'low_q_freq', 'zero_q_freq']
     target_vars = ['streamflow_mmd']
-    ts_slice = slice(dt.datetime(1980, 1, 1), dt.datetime(2015, 1, 1))
+    ts_slice = slice(dt.datetime(1980, 1, 1), dt.datetime(2014, 12, 31))
 
     def __init__(self, data_dir, ts_vars=None, location_vars=None,
                  streamflow_vars=None, target_vars=None, window_size=WINDOW_SIZE) -> None:
@@ -268,11 +268,11 @@ class CamelsDataset(object):
         self._ts = self.ts_data.time.unique()
 
         # Convert time to sin and cos
-        date_min = np.min(self._ts)
-        year_seconds = 365.2425*24*60*60
-        diff_seconds = (self.ts_data['time'] - date_min).dt.total_seconds().values
-        self.ts_data['year_sin'] =  np.sin(diff_seconds * (2*np.pi/year_seconds))
-        self.ts_data['year_cos'] =  np.cos(diff_seconds * (2*np.pi/year_seconds))
+        # date_min = np.min(self._ts)
+        # year_seconds = 365.2425*24*60*60
+        # diff_seconds = (self.ts_data['time'] - date_min).dt.total_seconds().values
+        # self.ts_data['year_sin'] =  np.sin(diff_seconds * (2*np.pi/year_seconds))
+        # self.ts_data['year_cos'] =  np.cos(diff_seconds * (2*np.pi/year_seconds))
 
         
         if self.compute_flow_cdf:
@@ -289,11 +289,14 @@ class CamelsDataset(object):
             self.target_scaler = StandardScaler()
 
             # Scale
+            
+            print('Fitting scalers')
             self.ts_data[self.ts_vars] = self.ts_scaler.fit_transform(self.ts_data[self.ts_vars])
             self.static_data[self.streamflow_vars] = self.static_scaler.fit_transform(self.static_data[self.streamflow_vars])
             self.targets[self.target_vars] = self.target_scaler.fit_transform(self.targets[self.target_vars])
         
         else:
+            print('Skipping fit call on scalers')
             self.ts_data[self.ts_vars] = self.ts_scaler.transform(self.ts_data[self.ts_vars])
             self.static_data[self.streamflow_vars] = self.static_scaler.transform(self.static_data[self.streamflow_vars])
             self.targets[self.target_vars] = self.target_scaler.transform(self.targets[self.target_vars])
@@ -464,7 +467,9 @@ class HybridDataset(CamelsDataset):
             # Initialize GR4J Production storage
             x1_param = self.gr4j_logs.loc[self.gr4j_logs['station_id']==station_id, 'x1'].values[0]
             self.prod.set_x1(x1_param)
-            station_hybrid_feat = self.prod(tf.convert_to_tensor(station_ts), include_x=False, scale=True)[0].numpy()
+            unscaled_ts = tf.convert_to_tensor(self.ts_scaler.inverse_transform(station_ts))
+            station_ts = tf.convert_to_tensor(station_ts)
+            station_hybrid_feat = self.prod(unscaled_ts, include_x=False, scale=True)[0].numpy()
             station_ts = np.concatenate([station_ts, station_hybrid_feat], axis=1)
             
             station_ts_data, station_targets = self.create_sequences(station_ts, station_targets, self.window_size)

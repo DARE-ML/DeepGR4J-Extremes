@@ -16,12 +16,12 @@ sys.path.append(root_dir)
 
 from model.tf.ml import ConvNet, LSTM
 from model.tf.hydro import ProductionStorage
-from data.tf.camels_dataset import HybridDataset
+from data.tf.camels_dataset import CamelsDataset, HybridDataset
 from utils.training import EarlyStopper, Trainer, TiltedLossMultiQuantile
 from utils.evaluation import nse, normalize
 
 # Create argument parser
-parser = argparse.ArgumentParser(description='Train Flow CDF Model')
+parser = argparse.ArgumentParser(description='Train Quantile Flow Model')
 
 # Add arguments
 parser.add_argument('--window_size', type=int, default=10, help='Size of the sliding window')
@@ -33,26 +33,23 @@ parser.add_argument('--state_outlet', type=str, default=None, help='State outlet
 parser.add_argument('--map_zone', type=int, default=None, help='Map zone')
 parser.add_argument('--ts_model', type=str, default='lstm', help='Time series model')
 
-parser.add_argument('--ts_input_dim', type=int, default=6, help='Input dimension for LSTM')
 parser.add_argument('--hidden_dim', type=int, default=32, help='Hidden dimension for LSTM')
 parser.add_argument('--lstm_dim', type=int, default=64, help='LSTM dimension')
 parser.add_argument('--n_layers', type=int, default=4, help='Number of LSTM layers')
 parser.add_argument('--ts_output_dim', type=int, default=8, help='Output dimension for LSTM')
 parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate for LSTM')
 
-parser.add_argument('--n_ts', type=int, default=10, help='Number of time steps')
 parser.add_argument('--n_features', type=int, default=6, help='Number of features')
 parser.add_argument('--n_channels', type=int, default=1, help='Number of channels')
-# parser.add_argument('--out_dim', type=int, default=3, help='Output dimension')
 parser.add_argument('--n_filters', type=int, nargs='+', default=[16, 16, 8], help='Number of filters for CNN')
 parser.add_argument('--cnn_dropout', type=float, default=0.1, help='Dropout rate for CNN')
 
 parser.add_argument('--batch_size', type=int, default=512, help='Batch size')
 parser.add_argument('--epochs', type=int, default=200, help='Number of epochs')
 parser.add_argument('--verbose', type=int, default=1, help='Verbosity level')
-parser.add_argument('--learning_rate', type=float, default=1e-5, help='Learning rate')
+parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate')
 parser.add_argument('--beta_1', type=float, default=0.89, help='Beta 1 for Adam optimizer')
-parser.add_argument('--beta_2', type=float, default=0.998, help='Beta 2 for Adam optimizer')
+parser.add_argument('--beta_2', type=float, default=0.97, help='Beta 2 for Adam optimizer')
 parser.add_argument('--weight_decay', type=float, default=2e-2, help='Weight decay for Adam optimizer')
 parser.add_argument('--patience', type=int, default=10, help='Patience for early stopping')
 parser.add_argument('--min_delta', type=float, default=0.01, help='Minimum change in validation loss for early stopping')
@@ -61,23 +58,23 @@ parser.add_argument('--min_delta', type=float, default=0.01, help='Minimum chang
 
 def get_model(args):
     if args.ts_model == 'lstm':
-        ts_model = LSTM(input_dim=args.ts_input_dim,
-                    hidden_dim=args.hidden_dim,
-                    lstm_dim=args.lstm_dim,
-                    n_layers=args.n_layers,
-                    output_dim=len(args.quantiles),
-                    dropout=args.dropout)
+        ts_model = LSTM(window_size=args.window_size,
+                        input_dim=args.ts_input_dim,
+                        hidden_dim=args.hidden_dim,
+                        lstm_dim=args.lstm_dim,
+                        n_layers=args.n_layers,
+                        output_dim=len(args.quantiles),
+                        dropout=args.dropout)
     
     elif args.ts_model == 'cnn':
         ts_model = ConvNet(n_ts=args.window_size,
-                           n_features=args.n_features,
+                           n_features=args.ts_input_dim,
                            n_channels=args.n_channels,
                            out_dim=len(args.quantiles),
                            n_filters=args.n_filters,
-                           dropout_p=args.cnn_dropout)
+                           dropout_p=args.dropout)
 
     return ts_model
-
 
 
 def generate_predictions(model, dl, loss_fn, results_dir):
@@ -120,9 +117,11 @@ def generate_predictions(model, dl, loss_fn, results_dir):
         if n_outputs > 1:
             for i in range(n_outputs):
                 ax.plot(preds[idx, i], label=f"Pred {i}")
-            ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
-        mse_score[station] = mean_squared_error(true[idx, -1], preds[idx, -2])
-        nse_score[station] = nse(true[idx, -1], preds[idx, -2])
+            # ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
+        else:
+            ax.plot(preds[idx, 0], label=f"Pred")
+        mse_score[station] = mean_squared_error(true[idx, -1], preds[idx, int(n_outputs//2)])
+        nse_score[station] = nse(true[idx, -1], preds[idx, int(n_outputs//2)])
         nnse_score[station] = normalize(nse_score[station])
         plt.legend()
         plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}.png'))
@@ -136,40 +135,51 @@ if __name__ == '__main__':
     
     # Parse arguments
     args = parser.parse_args()
+    ts_vars = ['precipitation_AWAP', 'et_morton_actual_SILO',
+           'tmax_awap', 'tmin_awap', 'vprp_awap']
+    ts_hybrid_vars_len = 4
+    args.ts_input_dim = len(ts_vars) + ts_hybrid_vars_len
     print(args)
 
     # Quantiles
-    args.quantiles = tf.convert_to_tensor([0.05, 0.25, 0.5, 0.75, 0.95])
+    args.quantiles = tf.convert_to_tensor([0.5])
 
     # Production Storage
     prod = ProductionStorage()
 
     # Load dataset
-    camels_ds = HybridDataset(data_dir=args.camels_dir,
-                              gr4j_logfile=args.gr4j_logfile,
-                              prod=prod,
-                              target_vars=['streamflow_mmd'])
-
+    camels_ds = CamelsDataset(data_dir=args.camels_dir,
+                              window_size=args.window_size)
     station_list = camels_ds.get_station_list()
     results_all = []
-
- 
 
     for station_id in station_list:
 
         # Assign state_outlet and map_zone
         args.station_id = [station_id]
 
+        camels_ds = HybridDataset(data_dir=args.camels_dir,
+                                  gr4j_logfile=args.gr4j_logfile,
+                                  prod=prod,
+                                  ts_vars=ts_vars,
+                                  target_vars=['streamflow_mmd'],
+                                  window_size=args.window_size)
+
         # Prepare data
         camels_ds.prepare_data(station_list=args.station_id,
-                            state_outlet=args.state_outlet,
-                            map_zone=args.map_zone)
+                               state_outlet=args.state_outlet,
+                               map_zone=args.map_zone)
         
         # Get datasets
         train_ds, test_ds = camels_ds.get_datasets()
 
         # Get model
         model = get_model(args)
+        if args.ts_model == 'lstm':
+            model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim), dtype=tf.float32))
+        else:
+            model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim, 1), dtype=tf.float32))
+            
         model.summary()
 
         # Define optimizer
@@ -177,11 +187,11 @@ if __name__ == '__main__':
                                             beta_1=args.beta_1,
                                             beta_2=args.beta_2,
                                             weight_decay=args.weight_decay,
-                                            epsilon=1e-07,
+                                            epsilon=1e-08,
                                             amsgrad=False)
 
         # Define loss function
-        loss_fn = TiltedLossMultiQuantile(quantiles=args.quantiles)
+        loss_fn = tf.keras.losses.MeanSquaredError() #TiltedLossMultiQuantile(quantiles=args.quantiles)
 
         # Define early stopper
         early_stopper = EarlyStopper(patience=args.patience, min_delta=args.min_delta)
@@ -232,25 +242,28 @@ if __name__ == '__main__':
         model_path = os.path.join(results_dir, 'model', station_id.encode().decode('utf-8'))
         os.makedirs(model_path, exist_ok=True)
         # model.save(os.path.join(model_path, 'model.keras'))
+        model.summary()
         model.save_weights(os.path.join(model_path, 'flow_model.weights.h5'), overwrite=True)
         prod.save_weights(os.path.join(model_path, 'prod.weights.h5'), overwrite=True)
 
         # Save scalers
         camels_ds.save_scalers(os.path.join(model_path))
+
+        
+        # Create array for losses
+        train_losses = np.array(train_losses)
+        test_losses = np.array(test_losses)
     
+        # Plot losses against epochs
+        fig, ax = plt.subplots(figsize=(10, 6))
+        ax.plot(train_losses, label='train')
+        ax.plot(test_losses, label='test')
+        plt.legend()
+        plt.savefig(os.path.join(model_path, 'losses.png'))
+        
     results = pd.concat(results_all)
     results.to_csv(os.path.join(results_dir, 'results.csv'))
 
-    # Create array for losses
-    train_losses = np.array(train_losses)
-    test_losses = np.array(test_losses)
-
-    # Plot losses against epochs
-    fig, ax = plt.subplots(figsize=(10, 6))
-    ax.plot(train_losses, label='train')
-    ax.plot(test_losses, label='test')
-    plt.legend()
-    plt.savefig(os.path.join(results_dir, 'losses.png'))
 
 
         
