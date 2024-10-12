@@ -1,6 +1,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 
+def confidence_score(targets: np.ndarray, predictions: np.ndarray):
+    lowlim = predictions[:, 0]
+    uplim = predictions[:, -1]
+    targets = targets.flatten()
+    flag = (targets>lowlim) & (targets<uplim)
+    return flag.sum()/len(targets)
+
 
 def nse(targets: np.ndarray, predictions: np.ndarray):
     return 1-(np.sum(np.square(targets-predictions))/np.sum(np.square(targets-np.mean(targets))))

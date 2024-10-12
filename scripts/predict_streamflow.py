@@ -20,17 +20,16 @@ from model.tf.hydro import ProductionStorage
 from data.tf.camels_dataset import CamelsDataset, HybridDataset
 from utils.evaluation import nse, normalize
 
-
 # Window size
-cdf_window_size = 8
-flow_window_size = 8
+cdf_window_size = 7
+flow_window_size = 7
 
 # CDF TS Model Parameters
 cdf_ts_model_name = 'lstm'
 
 cdf_lstm_config = {
-    'n_steps': cdf_window_size,
-    'input_dim': 6,
+    'window_size': cdf_window_size,
+    'input_dim': 7,
     'hidden_dim': 32,
     'output_dim': 8,
     'lstm_dim': 64,
@@ -39,8 +38,8 @@ cdf_lstm_config = {
 }
 
 cdf_cnn_config = {
-    'n_steps': cdf_window_size,
-    'n_features': 6,
+    'window_size': cdf_window_size,
+    'n_features': 7,
     'n_channels': 1,
     'output_dim': 8,
     'n_filters': [16, 16, 8],
@@ -60,12 +59,12 @@ cdf_target_vars = ['flow_cdf']
 cdf_output_dim = len(cdf_target_vars)
 
 # Quantile NN model
-flow_input_dim = 10
+flow_input_dim = 9
 flow_hidden_dim = 32
 flow_lstm_dim = 64
 flow_n_layers = 4
 flow_dropout = 0.2
-flow_quantiles = [0.05, 0.25, 0.5, 0.75, 0.95]
+flow_quantiles = [0.05, 0.5, 0.95]
 flow_target_vars = ['streamflow_mmd']
 
 
@@ -73,10 +72,10 @@ flow_target_vars = ['streamflow_mmd']
 # Directories
 camels_data_dir = '../../data/camels/aus'
 gr4j_results_dir = '../results/gr4j'
-cdf_results_dir = '../results/flow_cdf_saved_w8'
-deepgr4j_results_dir = '../results/qdeepgr4j_5q_w8/aus'
+cdf_results_dir = '../results/flow_cdf'
+deepgr4j_results_dir = '../results/qdeepgr4j_lstm/aus'
 gr4j_results_path = f'{gr4j_results_dir}/result.csv'
-results_dir = '../results/prediction_5q_w8'
+results_dir = '../results/deepgr4j_extremes_with_test'
 
 
 
@@ -173,12 +172,18 @@ def select_by_quantiles(values_array, quantiles):
 
 if __name__ == '__main__':
 
+
+    flow_ts_vars = ['precipitation_AWAP', 'et_morton_actual_SILO',
+           'tmax_awap', 'tmin_awap', 'vprp_awap']
+
     # CDF Dataset
     camels_ds = CamelsDataset(data_dir=camels_data_dir, 
                             target_vars=cdf_target_vars,
-                            window_size=cdf_window_size)
+                            window_size=cdf_window_size,
+                            ts_vars=flow_ts_vars)
     
     zone_list = camels_ds.get_zones()
+    
 
     results_all = []
 
@@ -190,6 +195,8 @@ if __name__ == '__main__':
         cdf_data_scaler_path = f'{cdf_results_dir}/{state_outlet}_{map_zone}/scalers.pkl'
         camels_ds.load_scalers(cdf_data_scaler_path)
 
+        print(cdf_model_path)
+
         # Load CDF model for the zone
         cdf_model = get_mixed_model(cdf_ts_model_name, cdf_lstm_config, cdf_static_config, cdf_combined_hidden_dim, cdf_output_dim)
         cdf_model.load_weights(cdf_model_path)
@@ -199,9 +206,6 @@ if __name__ == '__main__':
         station_list = camels_ds.get_station_list(state_outlet=state_outlet, map_zone=map_zone)
 
         for station_id in station_list:
-
-            # if station_id != '102101A':
-            #     continue
     
             print(f'Running predictions for {station_id}')
             flow_data_scaler_path = f'{deepgr4j_results_dir}/model/{station_id}/scalers.pkl'
@@ -211,10 +215,12 @@ if __name__ == '__main__':
 
             # Prepare flow CDF data
             print('Preparing CDF data')
-            camels_ds.prepare_data(station_list=[station_id])
+            camels_ds.prepare_data(station_list=[station_id], year_cols=True)
             cdf_train_ds, cdf_test_ds = camels_ds.get_datasets()
             print('Generating CDF predictions')
-            _, cdf_preds = generate_cdf_preds(cdf_model, cdf_test_ds.batch(256), results_dir=station_results_dir)
+            
+            _, train_cdf_preds = generate_cdf_preds(cdf_model, cdf_train_ds.batch(256), results_dir=station_results_dir)
+            _, test_cdf_preds = generate_cdf_preds(cdf_model, cdf_test_ds.batch(256), results_dir=station_results_dir)
 
 
             # Quantile NN model
@@ -225,7 +231,10 @@ if __name__ == '__main__':
                                       gr4j_logfile=gr4j_results_path,
                                       prod=prod,
                                       window_size=flow_window_size,
-                                      target_vars=flow_target_vars)
+                                      target_vars=flow_target_vars,
+                                      ts_vars=flow_ts_vars)
+
+            print(f'Production store X1: {hybrid_ds.prod.get_x1()}')
 
             flow_model = LSTM(window_size=flow_window_size,
                               input_dim=flow_input_dim,
@@ -242,7 +251,7 @@ if __name__ == '__main__':
 
             try:
                 hybrid_ds.load_scalers(flow_data_scaler_path)
-                hybrid_ds.prepare_data(station_list=[station_id])
+                hybrid_ds.prepare_data(station_list=[station_id], year_cols=False)
             except:
                 continue
             hybrid_train_ds, hybrid_test_ds = hybrid_ds.get_datasets()
@@ -250,28 +259,36 @@ if __name__ == '__main__':
 
             # Generate flow predictions
             print('Generating flow predictions')
-            res = generate_flow_preds(flow_model, hybrid_test_ds.batch(256), results_dir=station_results_dir)
-            mse_score, nse_score, nnse_score, qpreds, true = res
-            print(f'\nMSE: {mse_score:.4f}, NSE: {nse_score:.4f}, NNSE: {nnse_score:.4f}')
+            train_res = generate_flow_preds(flow_model, hybrid_train_ds.batch(256), results_dir=station_results_dir)
+            train_mse_score, train_nse_score, train_nnse_score, train_qpreds, train_true = train_res
+            print(f'\nMSE: {train_mse_score:.4f}, NSE: {train_nse_score:.4f}, NNSE: {train_nnse_score:.4f}')
+            
+            test_res = generate_flow_preds(flow_model, hybrid_test_ds.batch(256), results_dir=station_results_dir)
+            test_mse_score, test_nse_score, test_nnse_score, test_qpreds, test_true = test_res
+            print(f'\nMSE: {test_mse_score:.4f}, NSE: {test_nse_score:.4f}, NNSE: {test_nnse_score:.4f}')
 
 
             # Corrected preds using flow CDF
-            flowpreds = select_by_quantiles(qpreds, cdf_preds)
-            mse_score_corrected = mean_squared_error(true.flatten(), flowpreds)
-            nse_score_corrected = nse(true.flatten(), flowpreds)
-            nnse_score_corrected = normalize(nse(true.flatten(), flowpreds))
-            nse_score_corrected, nnse_score_corrected
+            flowpreds = select_by_quantiles(train_qpreds, train_cdf_preds)
+            train_mse_score_corrected = mean_squared_error(train_true.flatten(), flowpreds)
+            train_nse_score_corrected = nse(train_true.flatten(), flowpreds)
+            train_nnse_score_corrected = normalize(train_nse_score_corrected)
 
-            print(f'\nCorrected MSE: {mse_score_corrected:.4f} Corrected NSE: {nse_score_corrected:.4f}, Corrected NNSE: {nnse_score_corrected:.4f}')
+            print(f'Corrected MSE: {train_mse_score_corrected:.4f} Corrected NSE: {train_nse_score_corrected:.4f}, Corrected NNSE: {train_nnse_score_corrected:.4f}\n')
+            
+            flowpreds = select_by_quantiles(test_qpreds, test_cdf_preds)
+            test_mse_score_corrected = mean_squared_error(test_true.flatten(), flowpreds)
+            test_nse_score_corrected = nse(test_true.flatten(), flowpreds)
+            test_nnse_score_corrected = normalize(test_nse_score_corrected)
+
+            print(f'Corrected MSE: {test_mse_score_corrected:.4f} Corrected NSE: {test_nse_score_corrected:.4f}, Corrected NNSE: {test_nnse_score_corrected:.4f}\n')
 
             results_all.append({
                 'station_id': station_id,
-                'mse_score': mse_score,
-                'nse_score': nse_score,
-                'nnse_score': nnse_score,
-                'mse_score_corrected': mse_score_corrected,
-                'nse_score_corrected': nse_score_corrected,
-                'nnse_score_corrected': nnse_score_corrected
+                'nse_train': train_nse_score_corrected,
+                'nnse_train': train_nnse_score_corrected,
+                'nse_test': test_nse_score_corrected,
+                'nnse_test': test_nnse_score_corrected
             })
 
     results_df = pd.DataFrame(results_all)

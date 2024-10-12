@@ -7,7 +7,7 @@ def get_mixed_model(ts_model_name, ts_model_config, static_model_config, hidden_
     
     # Configure timeseries model
     if ts_model_name == 'lstm':
-        ts_model = LSTM(window_size=ts_model_config['n_steps'],
+        ts_model = LSTM(window_size=ts_model_config['window_size'],
                         input_dim=ts_model_config['input_dim'],
                         hidden_dim=ts_model_config['hidden_dim'],
                         lstm_dim=ts_model_config['lstm_dim'],
@@ -16,7 +16,7 @@ def get_mixed_model(ts_model_name, ts_model_config, static_model_config, hidden_
                         dropout=ts_model_config['dropout'])
     
     elif ts_model_name == 'cnn':
-        ts_model = ConvNet(n_ts=ts_model_config['n_steps'],
+        ts_model = ConvNet(n_ts=ts_model_config['window_size'],
                            n_features=ts_model_config['n_features'],
                            n_channels=ts_model_config['n_channels'],
                            out_dim=ts_model_config['output_dim'],
@@ -32,9 +32,9 @@ def get_mixed_model(ts_model_name, ts_model_config, static_model_config, hidden_
 
     # Define input layers
     if ts_model_name == 'lstm':
-        timeseries = tf.keras.Input(shape=(ts_model_config['n_steps'], ts_model_config['input_dim']), name='timeseries')
+        timeseries = tf.keras.Input(shape=(ts_model_config['window_size'], ts_model_config['input_dim']), name='timeseries')
     elif ts_model_name == 'cnn':
-        timeseries = tf.keras.Input(shape=(ts_model_config['n_steps'], ts_model_config['input_dim'], 1), name='timeseries')
+        timeseries = tf.keras.Input(shape=(ts_model_config['window_size'], ts_model_config['input_dim'], 1), name='timeseries')
     else:
         print(ts_model_name)
     static = tf.keras.Input(shape=(static_model_config['input_dim'],), name='static')

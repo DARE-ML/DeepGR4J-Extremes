@@ -32,7 +32,7 @@ parser.add_argument('--results_dir', type=str, default='../results/flow_cdf', he
 parser.add_argument('--ts_model', type=str, default='lstm', help='Time series model')
 
 # Timeseries model parameters
-parser.add_argument('--ts_input_dim', type=int, default=6, help='Input dimension for timeseries model')
+parser.add_argument('--ts_input_dim', type=int, default=7, help='Input dimension for timeseries model')
 parser.add_argument('--ts_output_dim', type=int, default=8, help='Output dimension for timeseries model')
 parser.add_argument('--ts_dropout', type=float, default=0.2, help='Dropout rate for timeseries model')
 
@@ -119,7 +119,7 @@ def get_ts_model_config(args):
         }
     elif args.ts_model == 'cnn':
         ts_model_config = {
-            'n_ts': args.winfow_size,
+            'window_size': args.winfow_size,
             'input_dim': args.ts_input_dim,
             'output_dim': args.ts_output_dim,
             'n_channels': args.ts_n_channels,
@@ -139,6 +139,9 @@ if __name__ == '__main__':
     
     # Parse arguments
     args = parser.parse_args()
+    ts_vars = ['precipitation_AWAP', 'et_morton_actual_SILO',
+           'tmax_awap', 'tmin_awap', 'vprp_awap']
+    print(f"Timeseries vars: {ts_vars}")
     print(args)
 
     # Get timeseries model config
@@ -155,6 +158,7 @@ if __name__ == '__main__':
     # Load dataset
     camels_ds = CamelsDataset(data_dir=args.camels_dir, 
                               target_vars=args.target_vars,
+                              ts_vars=ts_vars,
                               window_size=args.window_size)
     zone_list = camels_ds.get_zones()
 
@@ -165,9 +169,14 @@ if __name__ == '__main__':
         args.map_zone = map_zone
 
         # Prepare data
+        camels_ds = CamelsDataset(data_dir=args.camels_dir, 
+                                  target_vars=args.target_vars,
+                                  ts_vars=ts_vars,
+                                  window_size=args.window_size)
         camels_ds.prepare_data(station_list=args.station_id,
                                 state_outlet=args.state_outlet,
-                                map_zone=args.map_zone)
+                                map_zone=args.map_zone,
+                                year_cols=True)
         
         # Get datasets
         train_ds, test_ds = camels_ds.get_datasets()
@@ -175,7 +184,7 @@ if __name__ == '__main__':
 
 
         model = get_mixed_model(args.ts_model, ts_model_config,
-                                static_model_config, combined_hidden_dim,
+                                static_model_config, args.combined_hidden_dim,
                                 output_dim)
         model.summary()
 
@@ -225,7 +234,7 @@ if __name__ == '__main__':
         test_losses = np.array(test_losses)
 
         # Plot losses against epochs
-        fig, ax = plt.subplots(figsize=(10, 6))
+        fig, ax = plt.subplots(figsize=(16, 6))
         ax.plot(train_losses, label='train')
         ax.plot(test_losses, label='test')
         plt.legend()
@@ -238,6 +247,3 @@ if __name__ == '__main__':
         # Save scalers
         camels_ds.save_scalers(results_dir)
         print(f"Scalers saved to {results_dir}")
-
-
-        

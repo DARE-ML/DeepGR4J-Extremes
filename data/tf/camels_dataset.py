@@ -226,7 +226,7 @@ class CamelsDataset(object):
             self.target_scaler = scalers['target_scaler']
             
     
-    def prepare_data(self, station_list=None, state_outlet=None, map_zone=None):
+    def prepare_data(self, station_list=None, state_outlet=None, map_zone=None, year_cols=False):
 
         # Check if flow_cdf is in target_vars
         if 'flow_cdf' in self.target_vars:
@@ -268,11 +268,12 @@ class CamelsDataset(object):
         self._ts = self.ts_data.time.unique()
 
         # Convert time to sin and cos
-        # date_min = np.min(self._ts)
-        # year_seconds = 365.2425*24*60*60
-        # diff_seconds = (self.ts_data['time'] - date_min).dt.total_seconds().values
-        # self.ts_data['year_sin'] =  np.sin(diff_seconds * (2*np.pi/year_seconds))
-        # self.ts_data['year_cos'] =  np.cos(diff_seconds * (2*np.pi/year_seconds))
+        if year_cols:
+            date_min = np.min(self._ts)
+            year_seconds = 365.2425*24*60*60
+            diff_seconds = (self.ts_data['time'] - date_min).dt.total_seconds().values
+            self.ts_data['year_sin'] =  np.sin(diff_seconds * (2*np.pi/year_seconds))
+            self.ts_data['year_cos'] =  np.cos(diff_seconds * (2*np.pi/year_seconds))
 
         
         if self.compute_flow_cdf:
@@ -313,10 +314,7 @@ class CamelsDataset(object):
         target_data_updated = []
         for station_id in self.station_list:
             df = target_data[target_data.station_id == station_id].set_index('time')
-            if 'streamflow_mmd' in self.target_vars:
-                flow_values = df['streamflow_mmd'].dropna().sort_values(ascending=True)
-            else:
-                flow_values = df.streamflow_mmd.dropna().sort_values(ascending=True)
+            flow_values = df.streamflow_mmd.dropna().sort_values(ascending=True)
             flow_cdf = (np.arange(len(flow_values))+1)/(len(flow_values) + 1)
             flow_cdf = pd.Series(flow_cdf, index=flow_values.index)
             df['flow_cdf'] = flow_cdf
