@@ -2,6 +2,9 @@ from __future__ import absolute_import
 
 import tensorflow as tf
 from .lstm import LSTM
+from .cnn import ConvNet
+from .mlp import MLP
+from .rnn import RNN
 
 def get_mixed_model(ts_model_name, ts_model_config, static_model_config, hidden_dim, output_dim):
     
@@ -17,11 +20,28 @@ def get_mixed_model(ts_model_name, ts_model_config, static_model_config, hidden_
     
     elif ts_model_name == 'cnn':
         ts_model = ConvNet(n_ts=ts_model_config['window_size'],
-                           n_features=ts_model_config['n_features'],
+                           n_features=ts_model_config['input_dim'],
                            n_channels=ts_model_config['n_channels'],
                            out_dim=ts_model_config['output_dim'],
                            n_filters=ts_model_config['n_filters'],
                            dropout_p=ts_model_config['dropout'])
+    
+    elif ts_model_name == 'rnn':
+        ts_model = RNN(window_size=ts_model_config['window_size'],
+                        input_dim=ts_model_config['input_dim'],
+                        hidden_dim=ts_model_config['hidden_dim'],
+                        rnn_dim=ts_model_config['rnn_dim'],
+                        n_layers=ts_model_config['n_layers'],
+                        output_dim=ts_model_config['output_dim'],
+                        dropout=ts_model_config['dropout'])
+    
+    elif ts_model_name == 'mlp':
+        ts_model = MLP(window_size=ts_model_config['window_size'],
+                       input_dim=ts_model_config['input_dim'],
+                       hidden_dim=ts_model_config['hidden_dim'],
+                       output_dim=ts_model_config['output_dim'],
+                       n_layers=ts_model_config['n_layers'],
+                       dropout=ts_model_config['dropout'])
 
     # Configure static model
     static_model = tf.keras.Sequential([
@@ -31,12 +51,11 @@ def get_mixed_model(ts_model_name, ts_model_config, static_model_config, hidden_
                     ])
 
     # Define input layers
-    if ts_model_name == 'lstm':
-        timeseries = tf.keras.Input(shape=(ts_model_config['window_size'], ts_model_config['input_dim']), name='timeseries')
-    elif ts_model_name == 'cnn':
+    if ts_model_name == 'cnn':
         timeseries = tf.keras.Input(shape=(ts_model_config['window_size'], ts_model_config['input_dim'], 1), name='timeseries')
     else:
-        print(ts_model_name)
+        timeseries = tf.keras.Input(shape=(ts_model_config['window_size'], ts_model_config['input_dim']), name='timeseries')
+        
     static = tf.keras.Input(shape=(static_model_config['input_dim'],), name='static')
 
     # Combine inputs

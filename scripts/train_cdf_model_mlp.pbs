@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#PBS -N flowcdf_mlp
+#PBS -l select=1:ncpus=4:mem=16gb
+#PBS -l walltime=3:00:00 
+#PBS -M arpit.kapoor@unsw.edu.au 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /srv/scratch/z5370003/projects/DeepGR4J-Extremes/scripts/logs/flowcdf_mlp.log
+
+cd $PBS_O_WORKDIR
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_cdf_model.py --ts_model mlp --learning_rate 1e-3 --batch_size 256 --window_size 7 --ts_dropout 0.2 --epochs 500 --weight_decay 0.04  --min_delta 0.001 --patience 10 --target_vars flow_cdf --results_dir ../results/flow_cdf_mlp

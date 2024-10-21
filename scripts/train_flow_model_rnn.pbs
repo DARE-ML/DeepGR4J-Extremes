@@ -1,0 +1,13 @@
+#!/bin/bash
+
+#PBS -N qdeepgr4j_rnn_eval
+#PBS -l select=1:ncpus=4:mem=32gb
+#PBS -l walltime=8:00:00 
+#PBS -M arpit.kapoor@unsw.edu.au 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /srv/scratch/z5370003/projects/DeepGR4J-Extremes/scripts/logs/qdeepgr4j_rnn_eval.log
+
+cd $PBS_O_WORKDIR
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --ts_model rnn --min_delta 0.001 --patience 5  --results_dir ../results/qdeepgr4j_rnn_eval

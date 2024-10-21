@@ -9,7 +9,7 @@ import tensorflow as tf
 import matplotlib.pyplot as plt
 
 from tqdm import tqdm, trange
-from sklearn.metrics import mean_squared_error
+from sklearn.metrics import mean_squared_error, r2_score
 
 root_dir = '/srv/scratch/z5370003/projects/DeepGR4J-Extremes'
 sys.path.append(root_dir)
@@ -39,6 +39,7 @@ parser.add_argument('--ts_dropout', type=float, default=0.2, help='Dropout rate 
 # LSTM model parameters
 parser.add_argument('--ts_hidden_dim', type=int, default=32, help='Hidden dimension for LSTM timeseries model')
 parser.add_argument('--ts_lstm_dim', type=int, default=64, help='LSTM dimensions')
+parser.add_argument('--ts_rnn_dim', type=int, default=64, help='RNN dimensions')
 parser.add_argument('--ts_n_layers', type=int, default=4, help='Number of LSTM layers')
 
 # CNN model parameters
@@ -92,18 +93,21 @@ def plot_timeseries(model, dl, loss_fn, results_dir):
 
     os.makedirs(results_dir, exist_ok=True)
     mse_error = {}
+    r2_error = {}
 
     for station in np.unique(stations):
         idx = (stations==station)
+        station = station.decode('utf-8')
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(preds[idx, -1], label='pred')
         ax.plot(true[idx, -1], label='true')
         mse_error[station] = mean_squared_error(true[idx, -1], preds[idx, -1])
+        r2_error[station] = r2_score(true[idx, -1], preds[idx, -1])
         plt.legend()
-        plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}.png'))
+        plt.savefig(os.path.join(results_dir, f'{station}.png'))
         plt.close()
     
-    return mse_error
+    return mse_error, r2_error
 
 
 def get_ts_model_config(args):
@@ -119,11 +123,30 @@ def get_ts_model_config(args):
         }
     elif args.ts_model == 'cnn':
         ts_model_config = {
-            'window_size': args.winfow_size,
+            'window_size': args.window_size,
             'input_dim': args.ts_input_dim,
             'output_dim': args.ts_output_dim,
             'n_channels': args.ts_n_channels,
             'n_filters': args.ts_n_filters,
+            'dropout': args.ts_dropout
+        }
+    elif args.ts_model == 'rnn':
+        ts_model_config = {
+            'window_size': args.window_size,
+            'input_dim': args.ts_input_dim,
+            'output_dim': args.ts_output_dim,
+            'hidden_dim': args.ts_hidden_dim,
+            'rnn_dim': args.ts_rnn_dim,
+            'n_layers': args.ts_n_layers,
+            'dropout': args.ts_dropout
+        }
+    elif args.ts_model == 'mlp':
+        ts_model_config = {
+            'window_size': args.window_size,
+            'input_dim': args.ts_input_dim,
+            'output_dim': args.ts_output_dim,
+            'hidden_dim': args.ts_hidden_dim,
+            'n_layers': args.ts_n_layers,
             'dropout': args.ts_dropout
         }
     else:
@@ -217,14 +240,17 @@ if __name__ == '__main__':
             results_dir = os.path.join(args.results_dir, 'aus')
 
         os.makedirs(args.results_dir, exist_ok=True)
-        train_mse_error = plot_timeseries(model, train_ds.batch(args.batch_size),
+        train_mse_error, train_r2_error = plot_timeseries(model, train_ds.batch(args.batch_size),
                                           loss_fn, os.path.join(results_dir, 'training'))
 
-        test_mse_error = plot_timeseries(model, test_ds.batch(args.batch_size),
+        test_mse_error, test_r2_error = plot_timeseries(model, test_ds.batch(args.batch_size),
                                          loss_fn, os.path.join(results_dir, 'testing'))
 
         # Save results
-        results = pd.DataFrame({'train_mse': train_mse_error, 'test_mse': test_mse_error})
+        results = pd.DataFrame({'train_mse': train_mse_error, 
+                                'test_mse': test_mse_error,
+                                'train_r2': train_r2_error,
+                                'test_r2': test_r2_error})
         results.index.name = 'station_id'
         results = results.reset_index()
         results.to_csv(os.path.join(results_dir, 'results.csv'))

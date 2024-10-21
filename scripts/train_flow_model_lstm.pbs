@@ -2,7 +2,7 @@
 
 #PBS -N qdeepgr4j_lstm_eval
 #PBS -l select=1:ncpus=4:mem=32gb
-#PBS -l walltime=2:00:00 
+#PBS -l walltime=8:00:00 
 #PBS -M arpit.kapoor@unsw.edu.au 
 #PBS -m ae
 #PBS -j oe

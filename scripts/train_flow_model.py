@@ -14,7 +14,7 @@ from sklearn.metrics import mean_squared_error, r2_score
 root_dir = '/srv/scratch/z5370003/projects/DeepGR4J-Extremes'
 sys.path.append(root_dir)
 
-from model.tf.ml import ConvNet, LSTM
+from model.tf.ml import ConvNet, LSTM, RNN, MLP
 from model.tf.hydro import ProductionStorage
 from data.tf.camels_dataset import CamelsDataset, HybridDataset
 from utils.training import EarlyStopper, Trainer, TiltedLossMultiQuantile
@@ -35,6 +35,7 @@ parser.add_argument('--ts_model', type=str, default='lstm', help='Time series mo
 
 parser.add_argument('--hidden_dim', type=int, default=32, help='Hidden dimension for LSTM')
 parser.add_argument('--lstm_dim', type=int, default=64, help='LSTM dimension')
+parser.add_argument('--rnn_dim', type=int, default=64, help='RNN dimension')
 parser.add_argument('--n_layers', type=int, default=4, help='Number of LSTM layers')
 parser.add_argument('--ts_output_dim', type=int, default=8, help='Output dimension for LSTM')
 parser.add_argument('--dropout', type=float, default=0.2, help='Dropout rate for LSTM')
@@ -71,6 +72,26 @@ def get_model(args):
                            out_dim=len(args.quantiles),
                            n_filters=args.n_filters,
                            dropout_p=args.dropout)
+        
+    elif args.ts_model == 'rnn':
+        ts_model = RNN(window_size=args.window_size,
+                       input_dim=args.ts_input_dim,
+                       hidden_dim=args.hidden_dim,
+                       rnn_dim=args.rnn_dim,
+                       output_dim=len(args.quantiles),
+                       n_layers=args.n_layers,
+                       dropout=args.dropout)
+    
+    elif args.ts_model == 'mlp':
+        ts_model = MLP(window_size=args.window_size,
+                       input_dim=args.ts_input_dim,
+                       hidden_dim=args.hidden_dim,
+                       output_dim=len(args.quantiles),
+                       n_layers=args.n_layers,
+                       dropout=args.dropout)
+    
+    else:
+        raise ValueError(f"Invalid time series model: {args.ts_model}")
 
     return ts_model
 
@@ -112,15 +133,19 @@ def generate_predictions(model, dl, loss_fn, results_dir):
         idx = (stations==station)
         fig, ax = plt.subplots(figsize=(16, 6))
         n_outputs = preds.shape[-1]
-        ax.plot(true[idx, -1], label=f"True")
+        ax.plot(true[idx, -1], alpha=0.75, label=f"True", color='black')
         if n_outputs > 1:
-            for i in range(n_outputs):
-                ax.plot(preds[idx, i], alpha=0.65, label=f"Pred {i}")
-            ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green')
+            # for i in range(n_outputs):
+            print(int(n_outputs//2))
+            ax.plot(preds[idx, int(n_outputs//2)], alpha=0.65, label=f"Pred-mediam", color='red')
+            ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green', label='90% conf')
         else:
             ax.plot(preds[idx, 0], alpha=0.65, label=f"Pred")
+        ax.set_title(f'{station}')
+        ax.set_ylabel('Streamflow (mm/day)')
+        ax.set_xlabel('Time')
         plt.legend()
-        plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}.png'))
+        plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}.png'), bbox_inches='tight')
         plt.close()
         
         # Compute Scores
@@ -157,9 +182,9 @@ if __name__ == '__main__':
     # Load dataset
     camels_ds = CamelsDataset(data_dir=args.camels_dir,
                               window_size=args.window_size)
-    # station_list = camels_ds.get_station_list()
-    station_list = ['112102A', '121001A', '238208', '419005', 'G0050115',
-                    '102101A', '401217', '401009', '314213', 'G9030124']
+    station_list = camels_ds.get_station_list()
+    # station_list = ['112102A', '121001A', '238208', '419005', 'G0050115',
+    #                 '102101A', '401217', '401009', '314213', 'G9030124']
 
     results_all = []
 
@@ -191,10 +216,10 @@ if __name__ == '__main__':
 
         # Get model
         model = get_model(args)
-        if args.ts_model == 'lstm':
-            model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim), dtype=tf.float32))
-        else:
+        if args.ts_model == 'cnn':
             model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim, 1), dtype=tf.float32))
+        else:
+            model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim), dtype=tf.float32))
             
         model.summary()
 
