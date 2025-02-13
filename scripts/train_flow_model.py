@@ -96,18 +96,32 @@ def get_model(args):
     return ts_model
 
 def generate_predictions(model, dl, loss_fn, results_dir):
+    
+    # Create lists to store predictions and true values
+    times = []
     preds = []
     true = []
     stations = []
+
+    # Generate predictions for each batch
     for step, batch in enumerate(dl):
-        # Run the forward pass of the layer.
+        
+        # Add channel dimension for CNN
         if args.ts_model == 'cnn':
             batch['timeseries'] = tf.expand_dims(batch['timeseries'], axis=-1)
+        
+        # Make predictions
         out = model(batch['timeseries'],
                     training=False) 
+
+        # Append to list
+        times.append(batch['time'])
         preds.append(out)
         true.append(batch['target'])
         stations.append(batch['station_id'])
+    
+    # Concatenate predictions
+    times = tf.concat(times, axis=0)
     preds = tf.concat(preds, axis=0)
     true = tf.concat(true, axis=0)
     stations = tf.concat(stations, axis=0)
@@ -122,7 +136,10 @@ def generate_predictions(model, dl, loss_fn, results_dir):
     preds = np.clip(preds, 0, None)
     stations = stations.numpy().flatten()
 
+    # Create results directory
     os.makedirs(results_dir, exist_ok=True)
+
+    # Create dictionary to store scores
     mse_score = {}
     nse_score = {}
     nnse_score = {}
@@ -130,20 +147,34 @@ def generate_predictions(model, dl, loss_fn, results_dir):
     rsquared_score = {}
     
     for station in np.unique(stations):
+
+        # Get index of station
         idx = (stations==station)
-        fig, ax = plt.subplots(figsize=(16, 6))
+        # Get number of outputs
         n_outputs = preds.shape[-1]
+
+        # Create plot
+        fig, ax = plt.subplots(figsize=(16, 6))
+
+        # Plot true values
         ax.plot(true[idx, -1], alpha=0.75, label=f"True", color='black')
+
+        # Plot predictions
         if n_outputs > 1:
-            # for i in range(n_outputs):
-            print(int(n_outputs//2))
+            # Plot median prediction
             ax.plot(preds[idx, int(n_outputs//2)], alpha=0.65, label=f"Pred-mediam", color='red')
+            # Plot 5th and 95th quantiles
             ax.fill_between(range(len(preds)), preds[:, 0], preds[:, -1], alpha=0.5, color='green', label='90% conf')
         else:
+            # Plot single prediction
             ax.plot(preds[idx, 0], alpha=0.65, label=f"Pred")
+        
+        # Format and save plot
         ax.set_title(f'{station}')
         ax.set_ylabel('Streamflow (mm/day)')
         ax.set_xlabel('Time')
+        ax.tick_params(axis='both', which='major', labelsize=10)
+        ax.tick_params(axis='both', which='minor', labelsize=8)
         plt.legend()
         plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}.png'), bbox_inches='tight')
         plt.close()
@@ -154,12 +185,44 @@ def generate_predictions(model, dl, loss_fn, results_dir):
         nnse_score[station] = []
         rsquared_score[station] = []
         
+        # Plot histogram of quantiles
+        fig, ax = plt.subplots(figsize=(10, 4))
+  
+        # Histogram of true values
+        ax.hist(true[idx, -1], bins=50, alpha=0.5, label='True', zorder=11)
+
         for j in range(n_outputs):
+
+            # Quantile j predictions
+            ax.hist(preds[idx, j], bins=30, alpha=0.5, label=f'Q{j+1}', zorder=10*(n_outputs-j))
+
+            # Compute regression scores
             mse_score[station].append(mean_squared_error(true[idx, -1], preds[idx, j]))
             rsquared_score[station].append(r2_score(true[idx, -1], preds[idx, j]))
             nse_score[station].append(nse(true[idx, -1], preds[idx, j]))
             nnse_score[station].append(normalize(nse(true[idx, -1], preds[idx, j])))
+        
+        # Format and save histogram plot
+        ax.set_title(f'{station.decode("utf-8")}')
+        ax.set_ylabel('Frequency', fontsize=18)
+        ax.set_xlabel('Streamflow (mm/day)', fontsize=18)
+        ax.set_yscale('log')
+        ax.tick_params(axis='both', which='major', labelsize=18)
+        ax.tick_params(axis='both', which='minor', labelsize=18)
+        plt.legend()
+        plt.savefig(os.path.join(results_dir, f'{station.decode("utf-8")}_hist.png'), bbox_inches='tight')
+        
+        # Compute confidence score
         conf_score[station] = confidence_score(true[idx, -1], preds[idx])
+
+        # Combine the true values and predictions into a single dataframe
+        results_data = {'true': true[idx, -1], 'time': times[idx]}
+        for j in range(n_outputs):
+            results_data[f'pred_{j}'] = preds[idx, j]
+        results_df = pd.DataFrame(results_data)
+        predictions_dir = os.path.join(results_dir, 'predictions')
+        os.makedirs(predictions_dir, exist_ok=True)
+        results_df.to_csv(os.path.join(predictions_dir, f'{station.decode("utf-8")}_preds.csv'), index=False)
     
     return mse_score, rsquared_score, nse_score, nnse_score, conf_score
 
@@ -179,13 +242,15 @@ if __name__ == '__main__':
     # Quantiles
     args.quantiles = tf.convert_to_tensor([0.05, 0.5, 0.95])
 
-    # Load dataset
+    # Load dataset and get station list
     camels_ds = CamelsDataset(data_dir=args.camels_dir,
                               window_size=args.window_size)
-    station_list = camels_ds.get_station_list()
-    # station_list = ['112102A', '121001A', '238208', '419005', 'G0050115',
-    #                 '102101A', '401217', '401009', '314213', 'G9030124']
+    if args.station_id is not None:
+        station_list = args.station_id
+    else:
+        station_list = camels_ds.get_station_list()
 
+    # List to store results dataframes
     results_all = []
 
     for station_id in station_list:
@@ -193,9 +258,7 @@ if __name__ == '__main__':
         # Production Storage
         prod = ProductionStorage()
 
-        # Assign state_outlet and map_zone
-        args.station_id = [station_id]
-
+        # Load dataset
         camels_ds = HybridDataset(data_dir=args.camels_dir,
                                   gr4j_logfile=args.gr4j_logfile,
                                   prod=prod,
@@ -204,14 +267,14 @@ if __name__ == '__main__':
                                   window_size=args.window_size)
 
         # Prepare data
-        camels_ds.prepare_data(station_list=args.station_id,
+        camels_ds.prepare_data(station_list=[station_id],
                                state_outlet=args.state_outlet,
                                map_zone=args.map_zone)
         
         
         # Get datasets
         train_ds, test_ds = camels_ds.get_datasets(test_size=0.3)
-        print(f"Station Id: {args.station_id}")
+        print(f"Station Id: {station_id}")
         print(f"X1 after data prep: {camels_ds.prod.get_x1()}\n")
 
         # Get model
@@ -220,7 +283,8 @@ if __name__ == '__main__':
             model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim, 1), dtype=tf.float32))
         else:
             model(tf.random.normal((args.batch_size, args.window_size, args.ts_input_dim), dtype=tf.float32))
-            
+        
+        # Print model summary
         model.summary()
 
         # Define optimizer
@@ -244,28 +308,28 @@ if __name__ == '__main__':
         # Train model
         model, train_losses, test_losses = trainer.train(train_ds, test_ds, args)
 
-
         # Plot timeseries predictions
         if (args.state_outlet is not None) or (args.map_zone is not None):
             results_dir = os.path.join(args.results_dir, f'{args.state_outlet}_{args.map_zone}')
         else:
             results_dir = os.path.join(args.results_dir, 'aus')
 
+        # Create results directory
         os.makedirs(args.results_dir, exist_ok=True)
         
+        # Generate predictions for training
         train_mse, train_r2, train_nse, train_nnse, train_conf = generate_predictions(
             model, 
             train_ds.batch(args.batch_size),
             loss_fn, os.path.join(results_dir, 'training')
         )
 
+        # Generate predictions for testing
         test_mse, test_r2, test_nse, test_nnse, test_conf = generate_predictions(
             model, 
             test_ds.batch(args.batch_size),
             loss_fn, os.path.join(results_dir, 'testing')
         )
-
-        print(test_nse, test_nnse)
 
         # Save results
         results = pd.DataFrame({
@@ -284,12 +348,15 @@ if __name__ == '__main__':
         results = results.reset_index()
         results['station_id'] = results['station_id'].apply(lambda x: x.decode('utf-8'))
 
+        # Print results
+        print(results)
+
+        # Append to results
         results_all.append(results)
 
         # Save model
         model_path = os.path.join(results_dir, 'model', station_id.encode().decode('utf-8'))
         os.makedirs(model_path, exist_ok=True)
-        # model.save(os.path.join(model_path, 'model.keras'))
         model.summary()
         model.save_weights(os.path.join(model_path, 'flow_model.weights.h5'), overwrite=True)
         prod.save_weights(os.path.join(model_path, 'prod.weights.h5'), overwrite=True)
@@ -297,7 +364,6 @@ if __name__ == '__main__':
         # Save scalers
         camels_ds.save_scalers(os.path.join(model_path))
 
-        
         # Create array for losses
         train_losses = np.array(train_losses)
         test_losses = np.array(test_losses)
@@ -308,10 +374,7 @@ if __name__ == '__main__':
         ax.plot(test_losses, label='test')
         plt.legend()
         plt.savefig(os.path.join(model_path, 'losses.png'))
-        
+    
+    # Concatenate results
     results = pd.concat(results_all)
     results.to_csv(os.path.join(results_dir, 'results.csv'))
-
-
-
-        

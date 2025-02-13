@@ -10,4 +10,4 @@
 
 cd $PBS_O_WORKDIR
 
-/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --ts_model mlp --min_delta 0.001 --patience 5  --results_dir ../results/qdeepgr4j_mlp_eval
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --station_id A0020101 418005 G8190001 304499 --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --ts_model mlp --min_delta 0.001 --patience 5  --results_dir ../results/qdeepgr4j_mlp_eval

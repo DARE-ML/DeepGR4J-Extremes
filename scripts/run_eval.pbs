@@ -1,0 +1,19 @@
+#!/bin/bash
+
+#PBS -N genplots
+#PBS -l select=1:ncpus=4:mem=32gb
+#PBS -l walltime=2:00:00 
+#PBS -M arpit.kapoor@unsw.edu.au 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /srv/scratch/z5370003/projects/DeepGR4J-Extremes/scripts/logs/genplots.log
+
+cd $PBS_O_WORKDIR
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --ts_model cnn --n_filters 8 8 6  --station_id A0020101 418005 G8190001 304499 --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.1 --epochs 500 --weight_decay 0.02  --min_delta 0.001 --patience 10 --results_dir ../results/qdeepgr4j_cnn_eval 
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --ts_model mlp --station_id A0020101 418005 G8190001 304499 --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --min_delta 0.001 --patience 5  --results_dir ../results/qdeepgr4j_mlp_eval
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --ts_model lstm --station_id A0020101 418005 G8190001 304499 --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --min_delta 0.001 --patience 5  --results_dir ../results/qdeepgr4j_lstm_eval
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_flow_model.py --ts_model rnn --station_id A0020101 418005 G8190001 304499 --learning_rate 1e-3 --batch_size 256 --window_size 7 --dropout 0.2 --epochs 500 --weight_decay 0.04 --min_delta 0.001 --patience 5  --results_dir ../results/qdeepgr4j_rnn_eval

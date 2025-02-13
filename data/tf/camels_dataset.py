@@ -330,9 +330,11 @@ class CamelsDataset(object):
         static_arr = []
         target_arr = []
         station_names = []
+        time_arr = []
         
         for station_id in station_ids:
             
+            time_data = ts_data[ts_data['station_id']==station_id].time.values
             station_ts = ts_data[ts_data['station_id']==station_id].drop(columns=['station_id', 'time'])
             station_static = static_data[static_data['station_id']==station_id].drop(columns=['station_id'])
             station_targets = target_data[target_data['station_id']==station_id].drop(columns=['station_id', 'time'])
@@ -343,11 +345,13 @@ class CamelsDataset(object):
             station_static_data = np.repeat(station_static.values, station_ts_data.shape[0], axis=0)
             station_names_data = np.repeat(station_id, station_ts_data.shape[0], axis=0)[:, np.newaxis]
             
+            time_arr.append(time_data[self.window_size:])
             ts_arr.append(station_ts_data)
             static_arr.append(station_static_data)
             target_arr.append(station_targets)
             station_names.append(station_names_data)
         
+        self.time_arr = np.concatenate(time_arr)
         self.ts_arr = np.nan_to_num(np.concatenate(ts_arr))
         self.static_arr = np.nan_to_num(np.concatenate(static_arr))
         self.target_arr = np.nan_to_num(np.concatenate(target_arr))
@@ -370,6 +374,7 @@ class CamelsDataset(object):
         static_train, static_test = [], []
         target_train, target_test = [], []
         station_names_train, station_names_test = [], []
+        time_train, time_test = [], []
 
         for i, station_id in enumerate(self.station_list):
             
@@ -377,6 +382,7 @@ class CamelsDataset(object):
             station_idx = self.station_names.flatten() == station_id
 
             # Station arrays
+            station_time = self.time_arr[station_idx]
             station_ts = self.ts_arr[station_idx]
             station_static = self.static_arr[station_idx]
             station_names = self.station_names[station_idx]
@@ -387,18 +393,25 @@ class CamelsDataset(object):
             n_records_train = int(n_records*(1-test_size))
 
             # Train data
+            time_train.append(station_time[:n_records_train])
             ts_train.append(station_ts[:n_records_train])
             static_train.append(station_static[:n_records_train])
             target_train.append(station_target[:n_records_train])
             station_names_train.append(station_names[:n_records_train])
 
             # Test data
+            time_test.append(station_time[n_records_train:])
             ts_test.append(station_ts[n_records_train:])
             static_test.append(station_static[n_records_train:])
             target_test.append(station_target[n_records_train:])
             station_names_test.append(station_names[n_records_train:])
 
         # Convert train and test data to tensors
+        print(np.concatenate(time_train, axis=0))
+        time_train = tf.convert_to_tensor(np.concatenate(time_train, axis=0),
+                                        dtype=tf.string, name='time_train')
+        time_test = tf.convert_to_tensor(np.concatenate(time_test, axis=0),
+                                        dtype=tf.string, name='time_test')
         ts_train = tf.convert_to_tensor(np.concatenate(ts_train, axis=0),
                                         dtype=tf.float32, name='timeseries_train')
         ts_test = tf.convert_to_tensor(np.concatenate(ts_test, axis=0),
@@ -417,12 +430,14 @@ class CamelsDataset(object):
                                                     dtype=tf.string, name='station_names_test')
         
         # Create the datasets
-        train_dataset = tf.data.Dataset.from_tensor_slices({'station_id': station_names_train,
+        train_dataset = tf.data.Dataset.from_tensor_slices({'time': time_train,
+                                                            'station_id': station_names_train,
                                                             'timeseries': ts_train,
                                                             'static': static_train,
                                                             'target': target_train})
 
-        test_dataset = tf.data.Dataset.from_tensor_slices({'station_id': station_names_test,
+        test_dataset = tf.data.Dataset.from_tensor_slices({'time': time_test,
+                                                           'station_id': station_names_test,
                                                            'timeseries': ts_test,
                                                            'static': static_test,
                                                            'target': target_test})
@@ -449,8 +464,10 @@ class HybridDataset(CamelsDataset):
         self.prod = prod
     
     def create_datasets(self, ts_data, static_data, target_data):
+        
         station_ids = static_data.station_id.unique()
         
+        time_arr = []
         ts_arr = []
         static_arr = []
         target_arr = []
@@ -458,6 +475,7 @@ class HybridDataset(CamelsDataset):
         
         for station_id in station_ids:
             
+            station_time = ts_data[ts_data['station_id']==station_id].time.values
             station_ts = ts_data[ts_data['station_id']==station_id].drop(columns=['station_id', 'time']).values
             station_static = static_data[static_data['station_id']==station_id].drop(columns=['station_id']).values
             station_targets = target_data[target_data['station_id']==station_id].drop(columns=['station_id', 'time']).values
@@ -474,11 +492,13 @@ class HybridDataset(CamelsDataset):
             station_static_data = np.repeat(station_static, station_ts_data.shape[0], axis=0)
             station_names_data = np.repeat([station_id], station_ts_data.shape[0], axis=0)[:, np.newaxis]
             
+            time_arr.append(station_time[self.window_size:])
             ts_arr.append(station_ts_data)
             static_arr.append(station_static_data)
             target_arr.append(station_targets)
             station_names.append(station_names_data)
         
+        self.time_arr = np.concatenate(time_arr)
         self.ts_arr = np.concatenate(ts_arr)
         self.static_arr = np.concatenate(static_arr)
         self.target_arr = np.concatenate(target_arr)
