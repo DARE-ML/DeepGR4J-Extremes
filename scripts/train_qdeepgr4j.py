@@ -153,7 +153,7 @@ def create_sequence(X, y, window_size, q_in):
                 ys.append(y[i + window_size-1])
 
         Xs, ys = torch.stack(Xs), torch.stack(ys)
-        if 'conv' in args.model:
+        if 'cnn' in args.model:
             Xs = torch.unsqueeze(Xs, dim=1)
 
         return Xs, ys

@@ -34,7 +34,7 @@ class ConvNet(nn.Module):
         
         self.flatten = nn.Flatten()
         self.dropout = nn.Dropout(p=dropout_p)
-        self.linear = nn.Linear(in_features=n_filters[-1]*(n_features-7)*((n_ts-3)//2), 
+        self.linear = nn.Linear(in_features=n_filters[-1]*(n_features-7)*((n_ts-1)//2), 
                                 out_features=out_dim)
         
     
