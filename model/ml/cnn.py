@@ -46,5 +46,61 @@ class ConvNet(nn.Module):
         out = self.dropout(self.flatten(out))
         out = self.linear(out)
         return out
+    
 
-
+class ConvNetAE(nn.Module):
+    
+    def __init__(self, ts_in, in_dim, ts_out, out_dim=1, hidden_dim=64, kernel_size=(3,3), stride=1, padding=1):
+        super(ConvNetAE, self).__init__()
+        
+        # Define parameters
+        self.ts_in = ts_in
+        self.in_dim = in_dim
+        self.ts_out = ts_out
+        self.out_dim = out_dim
+        self.hidden_dim = hidden_dim
+        
+        # Encoder
+        self.encoder = nn.Sequential(
+            nn.Conv2d(in_channels=1, out_channels=hidden_dim, 
+                      kernel_size=kernel_size, stride=stride, padding=padding),
+            nn.ReLU(),
+            nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, 
+                      kernel_size=kernel_size, stride=stride, padding=padding),
+            nn.ReLU()
+        )
+        
+        # Bottleneck: Flattening temporal dimension before feeding into decoder
+        self.fc_enc = nn.Linear(hidden_dim * ts_in * in_dim, 
+                                hidden_dim * ts_out * in_dim)
+        self.fc_dec = nn.Linear(hidden_dim * ts_out * in_dim, 
+                                hidden_dim * ts_out * in_dim)
+        
+        # Decoder
+        self.decoder = nn.Sequential(
+            nn.ConvTranspose2d(in_channels=hidden_dim, out_channels=hidden_dim, 
+                               kernel_size=kernel_size, stride=stride, 
+                               padding=padding),
+            nn.ReLU(),
+            nn.ConvTranspose2d(in_channels=hidden_dim, out_channels=1, 
+                               kernel_size=kernel_size, stride=stride, 
+                               padding=padding)
+        )
+        
+        # Final output projection
+        self.fc_out = nn.Linear(ts_out * in_dim, ts_out * out_dim)
+    
+    def forward(self, x):
+        # Encode
+        x = self.encoder(x)
+        x = x.view(x.size(0), -1)  # Flatten
+        x = self.fc_enc(x)
+        x = self.fc_dec(x)
+        x = x.view(x.size(0), self.hidden_dim, self.ts_out, self.in_dim)  # Reshape back for decoder
+        
+        # Decode
+        x = self.decoder(x)
+        x = x.view(x.size(0), -1)  # Flatten for final projection
+        x = self.fc_out(x)
+        x = x.view(x.size(0), self.ts_out, self.out_dim)  # Reshape to desired output shape
+        return x

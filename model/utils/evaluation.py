@@ -8,7 +8,7 @@ def nse(targets: np.ndarray, predictions: np.ndarray):
 def normalize(x):
     return 1/(2 - x)
 
-def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None, plot:bool = True):
+def evaluate(P: np.ndarray, E: np.ndarray, T: np.ndarray,  Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None, plot:bool = True, threshold:float=0.0):
 
     # Calculate NSE score
     if quantiles is not None:
@@ -21,12 +21,14 @@ def evaluate(P: np.ndarray, E: np.ndarray, Q: np.ndarray, Q_hat:np.ndarray, quan
     if plot:
         
         fig, ax = plt.subplots(figsize=(16, 6))
-        ax.plot(Q, color='black', label='obs', alpha=1.0)
+        ax.plot(T, Q, color='black', label='obs', alpha=1.0)
         if quantiles is not None:
             for i, q in enumerate(quantiles):
                 if q == 0.5:
-                    ax.plot(Q_hat[:, i], label=f'pred-{q:.2f}', alpha=0.75, color='red')
-            ax.fill_between(range(len(Q_hat)), Q_hat[:, 0], Q_hat[:, -1], alpha=0.5, color='green')
+                    ax.plot(T, Q_hat[:, i], label=f'pred-{q:.2f}', alpha=0.75, color='red')
+            ax.fill_between(T, Q_hat[:, 0], Q_hat[:, -1], alpha=0.5, color='green')
+            ax.axhline(y=threshold, color='blue',
+                       linestyle='--', label='flooding_threshold')
         else:
             ax.plot(Q_hat, color='red', label=f'pred', alpha=0.75)
             ax.plot(P, 'g--', label='precip', alpha=0.40)

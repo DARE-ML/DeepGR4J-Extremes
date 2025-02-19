@@ -10,4 +10,4 @@
 
 cd $PBS_O_WORKDIR
 
-/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model cnn --quantiles 0.05 0.5 0.95  --station-id 304499 --lr 1e-3 --batch-size 256 --window-size 7 --dropout 0.1 --n-epoch 500 --weight-decay 0.02   --run-dir ../results/qdeepgr4j_cnn --n-filters 8 8 6 --sub-dir no-scale-seq --data-dir ../data/camels/aus --gr4j-run-dir ../results/gr4j
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model cnn --quantiles 0.05 0.5 0.95  --station-id 304499 --lr 1e-3 --batch-size 256 --window-size 7 --dropout 0.1 --n-epoch 500 --weight-decay 0.02   --run-dir ../results/qdeepgr4j_cnn --sub-dir no-scale-seq --data-dir ../data/camels/aus --gr4j-run-dir ../results/gr4j

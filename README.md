@@ -1,4 +1,4 @@
-# DeepGR4J for Extreme flows
+# DeepGR4J with extreme flow classification based on Quantile Regression
 
 This repository extends the work from [DeepGR4J](https://github.com/DARE-ML/DeepGR4J) to improve predictions on extreme events. The initial experiments use quantile regression to achieve this. 
 
