@@ -6,6 +6,7 @@ import sys
 
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 
 import torch
 import torch.nn as nn
@@ -20,7 +21,7 @@ sys.path.append("../")
 from model.ml import ConvNet, LSTM, ConvNetAE
 from model.hydro.gr4j_prod import ProductionStorage
 from model.utils.training import EarlyStopper
-from model.utils.evaluation import evaluate
+from model.utils.evaluation import evaluate, out_of_interval, plot_quantiles
 from data.utils import read_dataset_from_file, get_station_list
 from camels_aus.repository import CamelsAus
 
@@ -82,14 +83,6 @@ def train_step(model, dl, quantiles, opt):
     return (total_loss/i).detach()
 
 
-def out_of_interval(targets, predictions, low_idx=0, high_idx=None):
-    assert (len(predictions.shape)==3), "Expect 3 dimensions in predictions"
-    if high_idx is None:
-        high_idx = predictions.shape[-1] - 1
-    out_of_interval = (targets < predictions[:, :, low_idx]) | (targets > predictions[:, :, high_idx])
-    return out_of_interval.sum()/out_of_interval.shape[0]
-
-
 def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quantiles=[0.5], threshold=0.0):
     # Evaluate on train data
     model.eval()
@@ -132,15 +125,53 @@ def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quant
     Q_hat = np.clip(np.concatenate(Q_hat, axis=0), 0, None)
     T = np.concatenate(T, axis=0)
 
-    print(f"Shape of T: {T.shape}")
+    # Plot predictions
+    forecast_horizon = Q.shape[1]
+    fig, ax = plt.subplots(forecast_horizon+1, 1, figsize=(16, 30), sharex=True)
 
-    evaluation_metrics = evaluate(P, ET, T[:, 0], Q[:, 0], Q_hat[:, 0],
-                                  quantiles=quantiles,
-                                  threshold=threshold)
+    # Empty lists to store evaluation metrics
+    evaluation_metrics = [None]*forecast_horizon
+    interval_metrics = [None]*forecast_horizon
+
+    for k in range(forecast_horizon):
+
+        # Evaluate prediction metrics
+        evaluation_metrics[k] = evaluate(Q[:, k], Q_hat[:, k],
+                                      quantiles=quantiles)
+        
+        # Evaluate interval metrics
+        interval_metrics[k] = out_of_interval(targets=Q[:, k],
+                                           predictions=Q_hat[:, k])
+
+        # Plot quantiles
+        fig = plot_quantiles(T[:, k], Q[:, k], Q_hat[:, k],
+                               quantiles, threshold, ax=ax[k])
+        
+        # Set title
+        ax[k].set_title(f"Streamflow prediction at timestep {k+1}")
+        ax[k].legend()
     
-    interval_evaluation = out_of_interval(targets=Q, predictions=Q_hat)
+    # Format evaluation metrics
+    evaluation_metrics = np.array(evaluation_metrics).T
+    interval_metrics = np.array(interval_metrics)
 
-    return evaluation_metrics, interval_evaluation
+    # Flood risk indicator
+    alert = np.array([-1]*len(T))
+    predicted_quantiles = Q_hat.max(axis=1)
+
+    # Assign alert levels
+    alert[predicted_quantiles[:, 2] > threshold] = 0
+    alert[predicted_quantiles[:, 1] > threshold] = 1
+    alert[predicted_quantiles[:, 0] > threshold] = 2
+
+    # Plot alert levels
+    T_time = np.array(list(map(dt.datetime.fromtimestamp, T[:, 0])))
+    ax[-1].scatter(T_time, alert, color='blue', label='flood_risk_indicator')
+    ax[-1].set_title("Flood Risk Indicator")
+    ax[-1].set_xlabel("Time")
+    ax[-1].set_ylabel("Alert Level")
+    
+    return evaluation_metrics, fig, interval_metrics
 
 
 def create_sequence(t, X, y, window_size, q_in, forecast_horizon):
@@ -306,32 +337,38 @@ def train_and_evaluate(train_ds, val_ds,
     # Compute flooding threshold
     flooding_threshold = compute_flooding_threshold(repo, station_id)
 
-    print(len(train_ds.tensors), len(val_ds.tensors))
-
     # Evaluate on train data
-    (nse_train, nnse_train, fig_train), confidence_score = evaluate_preds(model, prod_store,
+    evaluation_metrics, fig_train, confidence_score = evaluate_preds(model, prod_store,
                                                       train_ds, batch_size,
                                                       y_mu, y_sigma,
                                                       q_in=kwargs['q_in'],
                                                       quantiles=kwargs['quantiles'],
                                                       threshold=flooding_threshold)
     
-    print(f"Train NSE: {nse_train:.3f}")
-    print(f"Train Normalized NSE: {nnse_train:.3f}")
-    print(f"Confidence Score: {confidence_score:.3f}")
+    nse_train = evaluation_metrics[0]
+    nnse_train = evaluation_metrics[1]
+    
+    print(f"Train NSE: {nse_train}")
+    print(f"Train Normalized NSE: {nnse_train}")
+    print(f"Confidence Score: {confidence_score}")
    
     fig_train.savefig(os.path.join(plot_dir, f"{station_id}_train.png"))
     
     # Evaluate on val data
-    (nse_val, nnse_val, fig_val), confidence_score_val = evaluate_preds(model, prod_store,
+    evaluation_metrics, fig_val, confidence_score_val = evaluate_preds(model,
+                                                prod_store,
                                                 val_ds, batch_size,
                                                 y_mu, y_sigma,
                                                 q_in=kwargs['q_in'],
                                                 quantiles=kwargs['quantiles'],
                                                 threshold=flooding_threshold)
-    print(f"Validation NSE: {nse_val:.3f}")
-    print(f"Validation Normalized NSE: {nnse_val:.3f}")
-    print(f"Validation Confidence Score: {confidence_score_val:.3f}")
+    
+    nse_val = evaluation_metrics[0]
+    nnse_val = evaluation_metrics[1]
+
+    print(f"Validation NSE: {nse_val}")
+    print(f"Validation Normalized NSE: {nnse_val}")
+    print(f"Validation Confidence Score: {confidence_score_val}")
    
     fig_val.savefig(os.path.join(plot_dir, f"{station_id}_val.png"))
 
@@ -339,12 +376,12 @@ def train_and_evaluate(train_ds, val_ds,
     dikt = {
         'station_id': station_id,
         'x1': x1,
-        'nse_train': nse_train,
-        'nnse_train': nnse_train,
-        'confidence_score': confidence_score,
-        'nse_val': nse_val,
-        'nnse_val': nnse_val,
-        'confidence_score_val': confidence_score_val,
+        'nse_train': str(nse_train),
+        'nnse_train': str(nnse_train),
+        'confidence_score': str(confidence_score),
+        'nse_val': str(nse_val),
+        'nnse_val': str(nnse_val),
+        'confidence_score_val': str(confidence_score_val),
         'run_ts': dt.datetime.now()
     }
     df = pd.DataFrame(dikt, index=[0])
@@ -354,6 +391,7 @@ def train_and_evaluate(train_ds, val_ds,
         df.to_csv(csv_path, mode='a', header=False, index=False)
     else:
         df.to_csv(csv_path, index=False)
+
 
     return nse_train, nse_val
 
