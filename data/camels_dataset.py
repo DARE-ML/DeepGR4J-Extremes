@@ -120,7 +120,7 @@ class CamelsAusDataset(object):
             indices = coord.index[coord.station_id==station_id]
 
             indices_train, indices_val = train_test_split(indices, 
-                                                          test_size=0.3, 
+                                                          test_size=0.4, 
                                                           shuffle=False)
 
             X_train, X_val = (

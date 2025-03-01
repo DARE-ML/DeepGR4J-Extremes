@@ -64,10 +64,10 @@ class ConvNetAE(nn.Module):
         self.encoder = nn.Sequential(
             nn.Conv2d(in_channels=1, out_channels=hidden_dim, 
                       kernel_size=kernel_size, stride=stride, padding=padding),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, 
                       kernel_size=kernel_size, stride=stride, padding=padding),
-            nn.ReLU()
+            nn.Tanh()
         )
         
         # Bottleneck: Flattening temporal dimension before feeding into decoder
@@ -81,7 +81,7 @@ class ConvNetAE(nn.Module):
             nn.ConvTranspose2d(in_channels=hidden_dim, out_channels=hidden_dim, 
                                kernel_size=kernel_size, stride=stride, 
                                padding=padding),
-            nn.ReLU(),
+            nn.Tanh(),
             nn.ConvTranspose2d(in_channels=hidden_dim, out_channels=1, 
                                kernel_size=kernel_size, stride=stride, 
                                padding=padding)

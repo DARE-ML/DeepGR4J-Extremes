@@ -3,11 +3,21 @@
 #PBS -N train-qdeepgr4j
 #PBS -l select=1:ncpus=4:mem=32gb
 #PBS -l walltime=8:00:00 
-#PBS -M arpit.kapoor@unsw.edu.au 
 #PBS -m ae
 #PBS -j oe
 #PBS -o /srv/scratch/z5370003/projects/DeepGR4J-Extremes/scripts/logs/training.log
 
 cd $PBS_O_WORKDIR
 
-/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model cnn --quantiles 0.05 0.5 0.95  --station-id A5030502 --lr 1e-3 --batch-size 256 --window-size 7 --dropout 0.1 --n-epoch 500 --weight-decay 0.02   --run-dir ../results/qdeepgr4j_cnn --sub-dir no-scale-seq --data-dir ../data/camels/aus --gr4j-run-dir ../results/gr4j --q-in
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model cnn --quantiles 0.5  --station-id A5030502 --lr 1e-3 --batch-size 32 --window-size 10 --dropout 0.05 --n-epoch 250 --weight-decay 0.005   --run-dir ../results/qdeepgr4j_cnn --sub-dir no-scale-seq  --gr4j-run-dir ../results/gr4j --forecast-horizon 5
+
+
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model cnn --quantiles 0.05 0.5 0.95 --station-id 410730 --lr 1e-4 --batch-size 128 --window-size 10 --dropout 0 --n-epoch 75 --hidden-dim 128 --weight-decay 0   --run-dir ../results/qdeepgr4j_cnn_q_in --sub-dir no-scale-seq  --gr4j-run-dir ../results/gr4j --forecast-horizon 5 --q-in
+
+
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model cnn --quantiles 0.05 0.5 0.95 --station-id A5030502 --lr 1e-3 --batch-size 16 --window-size 20 --dropout 0.01 --n-epoch 500 --weight-decay 0.001 --run-dir ../results/qdeepgr4j_cnn_q_in_gpt_quantiles --sub-dir no-scale-seq  --gr4j-run-dir ../results/gr4j --q-in --forecast-horizon 5
+
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model lstm --quantiles 0.5  --station-id A5030502 --lr 1e-4 --batch-size 32 --window-size 10 --dropout 0.1 --n-epoch 250 --weight-decay 0.02   --run-dir ../results/qdeepgr4j_lstm --sub-dir no-scale-seq  --gr4j-run-dir ../results/gr4j --forecast-horizon 5
+
+
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j.py --model lstm --quantiles 0.5 --station-id A5030502 --lr 1e-4 --batch-size 32 --window-size 10 --dropout 0.1 --n-epoch 250 --weight-decay 0.02   --run-dir ../results/qdeepgr4j_lstm_q_in --sub-dir no-scale-seq  --gr4j-run-dir ../results/gr4j --q-in --forecast-horizon 5

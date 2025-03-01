@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 
 
-class LSTM(nn.Module):
+class LSTMNet(nn.Module):
 
     def __init__(self, input_dim, lstm_dim, hidden_dim, output_dim, n_layers, dropout=0.5):
                 
@@ -78,3 +78,33 @@ class LSTM(nn.Module):
             nn.init.normal_(p)
         nn.init.normal_(self.fc1.weight)
         nn.init.normal_(self.fc2.weight)
+
+
+class MultiStepLSTMNet(LSTMNet):
+
+    def __init__(self, input_dim, lstm_dim, hidden_dim, output_dim, n_layers, forecast_horizon, dropout=0.5):
+        super().__init__(input_dim, lstm_dim, hidden_dim, output_dim, n_layers, dropout)
+        self.forecast_horizon = forecast_horizon
+        self.fc1 = nn.Linear(self.lstm_dim, self.hidden_dim)
+        self.fc2 = nn.Linear(self.hidden_dim, self.output_dim)
+
+    def forward(self, x):
+        # Validate input shape
+        assert len(x.shape) == 3, f"Expected input to be 3-dim, got {len(x.shape)}"
+
+        # Get dimensions of the input
+        batch_size, seq_size, input_size = x.shape
+
+        # Initialize hidden_state
+        hidden, cell = self.init_zero_hidden(batch_size)
+
+        # Pass through the recurrent layer
+        out, (hidden, cell) = self.lstm_layer(x, (hidden, cell))
+
+        # Pass through the fully connected layer
+        out = out[:, -self.forecast_horizon:, :]
+        out = torch.tanh(self.fc1(out))
+        out = self.do(out)
+        out = self.fc2(out)
+
+        return out

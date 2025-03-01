@@ -10,10 +10,13 @@ def normalize(x):
     return 1/(2 - x)
 
 
+def rmse(targets: np.ndarray, predictions: np.ndarray):
+    return np.sqrt(np.mean(np.square(targets - predictions)))
+
+
 def plot_quantiles(T: np.ndarray, Q: np.ndarray, Q_hat: np.ndarray, quantiles: list, threshold: float, ax=None):
 
     T = np.array(list(map(dt.datetime.fromtimestamp, T)))
-    
     if ax is None:
         fig, ax = plt.subplots(figsize=(16, 6))
     
@@ -27,7 +30,6 @@ def plot_quantiles(T: np.ndarray, Q: np.ndarray, Q_hat: np.ndarray, quantiles: l
     ax.axhline(y=threshold, color='blue',
                 linestyle='--', label='flooding_threshold')
     
-    ax.set_xlabel('Timestep')
     ax.set_ylabel('Flow (mm/day)')
     
     plt.legend()
@@ -39,12 +41,21 @@ def evaluate(Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None):
 
     # Calculate NSE score
     if quantiles is not None:
-        nse_score = nse(Q, Q_hat[:, int(len(quantiles)/2)])
+        nse_score = np.zeros(len(quantiles))
+        rmse_score = np.zeros(len(quantiles))
+
+        for i, q in enumerate(quantiles):
+            nse_score[i] = nse(Q, Q_hat[:, i])
+            rmse_score[i] = rmse(Q,Q_hat[:, i])
+
     else:
         nse_score = nse(Q, Q_hat)
+        rmse_score = rmse(Q, Q_hat)
+
+    # Normalize NSE score
     nnse_score = normalize(nse_score)
 
-    return nse_score, nnse_score
+    return rmse_score, nse_score, nnse_score
 
 
 def out_of_interval(targets, predictions, low_idx=0, high_idx=None):

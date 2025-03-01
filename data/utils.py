@@ -18,6 +18,18 @@ def get_station_list(data_dir, sub_dir):
     return os.listdir(write_dir_train)
 
 
+def get_station_list_from_state(data_dir, state):
+    # Read locations data
+    locations_path = os.path.join(data_dir, '02_location_boundary_area',
+                                  'location_boundary_area.csv')
+    locations_df = pd.read_csv(locations_path)
+
+    # Filter by state
+    locations_df = locations_df[locations_df['state_outlet'] == state]
+
+    return locations_df['station_id'].values
+
+
 def read_dataset_from_file(data_dir, sub_dir, station_id):
 
     # Paths to read from
