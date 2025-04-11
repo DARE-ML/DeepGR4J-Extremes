@@ -1,0 +1,22 @@
+#!/bin/bash
+#PBS -N NT-QDeepGR4J
+#PBS -l select=1:ncpus=4:mem=32gb
+#PBS -l walltime=12:00:00 
+#PBS -m ae
+#PBS -j oe
+#PBS -o /srv/scratch/z5370003/projects/03_extremes/DeepGR4J-Extremes/scripts/logs/training_v2.log
+
+cd $PBS_O_WORKDIR
+
+
+# # CNN
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j_v2.py --model cnn --quantiles 0.05 0.5 0.95 --state NT --lr 4e-4 --batch-size 128 --window-size 10 --dropout 0.05 --n-epoch 250 --hidden-dim 16 --weight-decay 0.00   --run-dir ../results/top5_comparison/qdeepgr4j_cnn --sub-dir fillna  --gr4j-run-dir ../results/gr4j --forecast-horizon 3  --num-runs 10 --q-in --n-stations 5
+
+# LSTM
+/srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j_v2.py --model lstm --quantiles 0.05 0.5 0.95 --state NT --lr 3e-4 --batch-size 128 --window-size 10 --dropout 0.1 --n-epoch 180 --hidden-dim 64 --weight-decay 0.01   --run-dir ../results/top5_comparison/qdeepgr4j_lstm --sub-dir fillna  --gr4j-run-dir ../results/gr4j --forecast-horizon 3 --q-in --n-stations 5 --num-runs 10
+
+# # RNN
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j_v2.py --model rnn --quantiles 0.05 0.5 0.95 --state SA --lr 3e-4 --batch-size 128 --window-size 10 --dropout 0.1 --n-epoch 250 --hidden-dim 64 --weight-decay 0.01   --run-dir ../results/top5_comparison/qdeepgr4j_rnn --sub-dir fillna  --gr4j-run-dir ../results/gr4j --forecast-horizon 3  --num-runs 10 --q-in --n-stations 5
+
+# # MLP
+# /srv/scratch/z5370003/miniconda3/envs/hydroml/bin/python train_qdeepgr4j_v2.py --model mlp --quantiles 0.05 0.5 0.95 --state SA --lr 1e-4 --batch-size 128 --window-size 10  --n-epoch 250 --hidden-dim 64 --weight-decay 0.01   --run-dir ../results/top5_comparison/qdeepgr4j_mlp --sub-dir fillna  --gr4j-run-dir ../results/gr4j --forecast-horizon 3  --num-runs 1 --q-in --n-stations 5

@@ -70,27 +70,51 @@ class CamelsAusDataset(object):
 
         # Store station ids
         self.stations = self.ds.station_id.to_numpy()
+        self.stations = self.stations[self.stations == '410730']
 
         X_list, y_list, coord_list = [], [], []
 
+        stations_to_remove = []
+
         for station_id in self.stations:
+            print(f"Processing station {station_id}...")
             station_ds = self.ds.sel(station_id=station_id)
-            station_ds = station_ds[self.x_col + self.y_col].where(
-                                    lambda x: x[self.y_col[0]].notnull(), 
-                                    drop=True
-                                )
-            for x_col in self.x_col:
-                station_ds = station_ds[self.x_col + self.y_col].where(
-                                    lambda x: x[x_col].notnull(), 
-                                    drop=True
-                                )
-            station_df = station_ds.to_pandas().reset_index()
+            station_ds = station_ds[self.x_col + self.y_col]
+
+            station_df = station_ds.to_pandas()
+
+            # Check if more than 10% of the data is missing
+            if station_df.isnull().any(axis=1).sum() > 0.1 * station_df.shape[0]:
+                print(f"Station {station_id} has more than 10% missing data. Skipping...")
+                print(station_df.info())
+                stations_to_remove.append(station_id)
+                continue
+
+            # Fill missing values except for the first year
+            for col in station_df.columns:
+
+                print(f"Station {station_id} has {station_df[col].isna().sum()} missing values. Filling with previous year data...")
+                
+                null_data = station_df[col][(station_df[col].isna()) & (station_df.index > dt.datetime(1980, 12, 31))]
+
+                station_df.loc[null_data.index, col] = station_df.loc[null_data.index - dt.timedelta(days=365), col].values
+
+                print(f"Station {station_id} has {station_df[col].isna().sum()} missing values after filling with previous year data.")
+
+            # Interpolate missing values
+            station_df.interpolate(method='linear', inplace=True)
+            station_df = station_df.reset_index()
 
             station_df.time = station_df.time.apply(lambda x: time.mktime(x.timetuple()))
 
             X_list.append(station_df[self.x_col])
             y_list.append(station_df[self.y_col])
             coord_list.append(station_df[self.coord_col])
+
+        # Remove stations with more than 10% missing data
+        for station_id in stations_to_remove:
+            self.stations = self.stations[self.stations != station_id]
+            print(f"Removing station {station_id} from dataset.")
 
         
         X = pd.concat(X_list, axis=0).reset_index(drop=True)

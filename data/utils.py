@@ -18,16 +18,33 @@ def get_station_list(data_dir, sub_dir):
     return os.listdir(write_dir_train)
 
 
-def get_station_list_from_state(data_dir, state):
+def get_station_list_from_state(data_dir, sub_dir, state, n_stations=None):
     # Read locations data
     locations_path = os.path.join(data_dir, '02_location_boundary_area',
                                   'location_boundary_area.csv')
     locations_df = pd.read_csv(locations_path)
 
-    # Filter by state
-    locations_df = locations_df[locations_df['state_outlet'] == state]
+    # Streamflow signatures
+    signatures_path = os.path.join(data_dir, '03_streamflow',
+                                   'streamflow_signatures.csv')
+    signatures_df = pd.read_csv(signatures_path)
 
-    return locations_df['station_id'].values
+    # Merge dataframes
+    merged_df = pd.merge(locations_df, signatures_df, 
+                            left_on='station_id', right_on='station_id')
+    
+    # Filter by state
+    merged_df = merged_df.loc[merged_df['state_outlet'] == state, :]
+    print(merged_df)
+
+    # Filter by n_stations
+    if n_stations is not None:
+        merged_df.sort_values('runoff_ratio', ascending=False, inplace=True)
+        stations_from_file = get_station_list(data_dir, sub_dir)
+        merged_df = merged_df.loc[merged_df['station_id'].isin(stations_from_file), :]
+        return merged_df['station_id'].values[:n_stations]
+
+    return merged_df['station_id'].values
 
 
 def read_dataset_from_file(data_dir, sub_dir, station_id):

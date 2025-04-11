@@ -4,10 +4,16 @@ import matplotlib.pyplot as plt
 
 
 def nse(targets: np.ndarray, predictions: np.ndarray):
-    return 1-(np.sum(np.square(targets-predictions))/np.sum(np.square(targets-np.mean(targets))))
+    numer = np.sum(np.square(targets-predictions))
+    denom = np.sum(np.square(targets-np.mean(targets)))
+    print(denom)
+    return 1 - numer/denom
 
 def normalize(x):
     return 1/(2 - x)
+
+def mse(targets: np.ndarray, predictions: np.ndarray):
+    return np.mean(np.square(targets - predictions))
 
 
 def rmse(targets: np.ndarray, predictions: np.ndarray):
@@ -15,6 +21,10 @@ def rmse(targets: np.ndarray, predictions: np.ndarray):
 
 
 def plot_quantiles(T: np.ndarray, Q: np.ndarray, Q_hat: np.ndarray, quantiles: list, threshold: float, ax=None):
+
+    T = T[-365*2:]
+    Q = Q[-365*2:]
+    Q_hat = Q_hat[-365*2:]
 
     T = np.array(list(map(dt.datetime.fromtimestamp, T)))
     if ax is None:
@@ -42,20 +52,21 @@ def evaluate(Q: np.ndarray, Q_hat:np.ndarray, quantiles:list=None):
     # Calculate NSE score
     if quantiles is not None:
         nse_score = np.zeros(len(quantiles))
-        rmse_score = np.zeros(len(quantiles))
+        mse_score = np.zeros(len(quantiles))
 
         for i, q in enumerate(quantiles):
+            print(f"Quantile: {q}")
             nse_score[i] = nse(Q, Q_hat[:, i])
-            rmse_score[i] = rmse(Q,Q_hat[:, i])
+            mse_score[i] = mse(Q,Q_hat[:, i])
 
     else:
         nse_score = nse(Q, Q_hat)
-        rmse_score = rmse(Q, Q_hat)
+        mse_score = rmse(Q, Q_hat)
 
     # Normalize NSE score
     nnse_score = normalize(nse_score)
 
-    return rmse_score, nse_score, nnse_score
+    return mse_score, nse_score, nnse_score
 
 
 def out_of_interval(targets, predictions, low_idx=0, high_idx=None):
@@ -65,6 +76,21 @@ def out_of_interval(targets, predictions, low_idx=0, high_idx=None):
     if high_idx is None:
         high_idx = predictions.shape[-1] - 1
     
-    out_of_interval = (targets < predictions[:, low_idx]) | (targets > predictions[:, high_idx])
+    out_of_interval = (targets > predictions[:, low_idx]) & (targets < predictions[:, high_idx])
     
-    return out_of_interval.sum()/out_of_interval.shape[0]
+    return np.abs(out_of_interval.sum()/out_of_interval.shape[0] - 0.90)
+
+
+def interval_score(targets, predictions, low_idx=0, high_idx=None):
+    
+    # assert (len(predictions.shape)==3), "Expect 3 dimensions in predictions"
+    
+    if high_idx is None:
+        high_idx = predictions.shape[-1] - 1
+    
+    U  = predictions[:, high_idx]
+    L  = predictions[:, low_idx]
+
+    IS = (U - L) + (2/(1 - 0.9)) * np.maximum(0, L - targets) + (2/(1 - 0.9)) * np.maximum(0, targets - U)
+    
+    return IS.mean()

@@ -56,6 +56,7 @@ class RNN(nn.Module):
         out = self.do(out)
         out = torch.tanh(self.fc1(out))
         out = self.fc2(out)
+        out = torch.unsqueeze(out, -1)
 
         return out
 

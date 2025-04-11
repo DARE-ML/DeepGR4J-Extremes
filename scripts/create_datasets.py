@@ -102,6 +102,8 @@ if __name__ == '__main__':
 
     # Parse command line arguments
     args = parser.parse_args()
+
+    print(f"Arguments: {args}")
     
     create_datasets(data_dir=args.data_dir,
                     sub_dir=args.sub_dir,

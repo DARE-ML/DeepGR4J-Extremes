@@ -59,6 +59,7 @@ class LSTMNet(nn.Module):
         out = self.do(out)
         out = torch.tanh(self.fc1(out))
         out = self.fc2(out)
+        out = torch.unsqueeze(out, -1)
 
         return out
 
@@ -80,31 +81,51 @@ class LSTMNet(nn.Module):
         nn.init.normal_(self.fc2.weight)
 
 
-class MultiStepLSTMNet(LSTMNet):
+
+
+class MultiStepLSTMNet(nn.Module):
 
     def __init__(self, input_dim, lstm_dim, hidden_dim, output_dim, n_layers, forecast_horizon, dropout=0.5):
-        super().__init__(input_dim, lstm_dim, hidden_dim, output_dim, n_layers, dropout)
+        super().__init__()
+        self.input_dim = input_dim
+        self.lstm_dim = lstm_dim
+        self.hidden_dim = hidden_dim
+        self.output_dim = output_dim
+        self.n_layers = n_layers
         self.forecast_horizon = forecast_horizon
-        self.fc1 = nn.Linear(self.lstm_dim, self.hidden_dim)
-        self.fc2 = nn.Linear(self.hidden_dim, self.output_dim)
+
+        # Encoder LSTM
+        self.encoder_lstm = nn.LSTM(input_dim, lstm_dim, n_layers, batch_first=True)
+
+        # Decoder LSTM
+        self.decoder_lstm = nn.LSTM(output_dim, lstm_dim, n_layers, batch_first=True)
+
+        # Fully connected layers
+        self.fc = nn.Linear(lstm_dim, output_dim)
+
+        self.dropout = nn.Dropout(p=dropout)
 
     def forward(self, x):
-        # Validate input shape
-        assert len(x.shape) == 3, f"Expected input to be 3-dim, got {len(x.shape)}"
+        batch_size, seq_len, _ = x.shape
 
-        # Get dimensions of the input
-        batch_size, seq_size, input_size = x.shape
+        # Initialize hidden state for encoder
+        encoder_hidden, encoder_cell = self.init_zero_hidden(batch_size)
 
-        # Initialize hidden_state
-        hidden, cell = self.init_zero_hidden(batch_size)
+        # Encode input sequence
+        _, (hidden, cell) = self.encoder_lstm(x, (encoder_hidden, encoder_cell))
 
-        # Pass through the recurrent layer
-        out, (hidden, cell) = self.lstm_layer(x, (hidden, cell))
+        # Prepare decoder input (first input is zeros)
+        decoder_input = torch.zeros((batch_size, 1, self.output_dim), device=x.device)
 
-        # Pass through the fully connected layer
-        out = out[:, -self.forecast_horizon:, :]
-        out = torch.tanh(self.fc1(out))
-        out = self.do(out)
-        out = self.fc2(out)
+        outputs = []
+        for t in range(self.forecast_horizon):
+            out, (hidden, cell) = self.decoder_lstm(decoder_input, (hidden, cell))
+            out = self.fc(out.squeeze(1))  # Pass through fully connected layer
+            outputs.append(out)
+            decoder_input = out.unsqueeze(1)  # Use predicted output as next input
 
-        return out
+        return torch.stack(outputs, dim=1)  # Shape: (batch_size, forecast_horizon, output_dim)
+
+    def init_zero_hidden(self, batch_size):
+        return (torch.zeros(self.n_layers, batch_size, self.lstm_dim, device='cuda' if torch.cuda.is_available() else 'cpu'),
+                torch.zeros(self.n_layers, batch_size, self.lstm_dim, device='cuda' if torch.cuda.is_available() else 'cpu'))

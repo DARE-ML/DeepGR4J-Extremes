@@ -50,7 +50,7 @@ class ConvNet(nn.Module):
 
 class ConvNetAE(nn.Module):
     
-    def __init__(self, ts_in, in_dim, ts_out, out_dim=1, hidden_dim=64, kernel_size=(3,3), stride=1, padding=1):
+    def __init__(self, ts_in, in_dim, ts_out, out_dim=1, hidden_dim=64, n_kernels=6, kernel_size=(3, 3), stride=1, padding=1):
         super(ConvNetAE, self).__init__()
         
         # Define parameters
@@ -59,32 +59,34 @@ class ConvNetAE(nn.Module):
         self.ts_out = ts_out
         self.out_dim = out_dim
         self.hidden_dim = hidden_dim
+        self.n_kernels = n_kernels
         
         # Encoder
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels=1, out_channels=hidden_dim, 
+            nn.Conv2d(in_channels=1, out_channels=n_kernels, 
                       kernel_size=kernel_size, stride=stride, padding=padding),
             nn.Tanh(),
-            nn.Conv2d(in_channels=hidden_dim, out_channels=hidden_dim, 
+            nn.Conv2d(in_channels=n_kernels, out_channels=n_kernels, 
                       kernel_size=kernel_size, stride=stride, padding=padding),
             nn.Tanh()
         )
         
         # Bottleneck: Flattening temporal dimension before feeding into decoder
-        self.fc_enc = nn.Linear(hidden_dim * ts_in * in_dim, 
-                                hidden_dim * ts_out * in_dim)
-        self.fc_dec = nn.Linear(hidden_dim * ts_out * in_dim, 
-                                hidden_dim * ts_out * in_dim)
+        self.fc_enc = nn.Linear(n_kernels * ts_in * in_dim, 
+                                hidden_dim)
+        self.fc_dec = nn.Linear(hidden_dim, 
+                                n_kernels * ts_out * in_dim)
         
         # Decoder
         self.decoder = nn.Sequential(
-            nn.ConvTranspose2d(in_channels=hidden_dim, out_channels=hidden_dim, 
+            nn.ConvTranspose2d(in_channels=n_kernels, out_channels=n_kernels, 
                                kernel_size=kernel_size, stride=stride, 
                                padding=padding),
             nn.Tanh(),
-            nn.ConvTranspose2d(in_channels=hidden_dim, out_channels=1, 
+            nn.ConvTranspose2d(in_channels=n_kernels, out_channels=1, 
                                kernel_size=kernel_size, stride=stride, 
-                               padding=padding)
+                               padding=padding),
+            nn.Tanh()
         )
         
         # Final output projection
@@ -96,7 +98,7 @@ class ConvNetAE(nn.Module):
         x = x.view(x.size(0), -1)  # Flatten
         x = self.fc_enc(x)
         x = self.fc_dec(x)
-        x = x.view(x.size(0), self.hidden_dim, self.ts_out, self.in_dim)  # Reshape back for decoder
+        x = x.view(x.size(0), self.n_kernels, self.ts_out, self.in_dim)  # Reshape back for decoder
         
         # Decode
         x = self.decoder(x)

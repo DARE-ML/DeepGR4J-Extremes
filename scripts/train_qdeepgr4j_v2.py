@@ -21,10 +21,10 @@ from scipy.stats import genextreme
 sys.path.append("../")
 plt.rcParams.update({'font.size': 22})
 
-from model.ml import ConvNetAE, MultiStepLSTMNet
+from model.ml import ConvNetAE, MultiStepLSTMNet, LSTMNet, RNN, MLP
 from model.hydro.gr4j_prod import ProductionStorage
 from model.utils.training import EarlyStopper
-from model.utils.evaluation import evaluate, out_of_interval, plot_quantiles
+from model.utils.evaluation import evaluate, interval_score, plot_quantiles
 from data.utils import (read_dataset_from_file, \
                        get_station_list, \
                        get_station_list_from_state)
@@ -56,7 +56,12 @@ parser.add_argument('--window-size', type=int, default=7)
 parser.add_argument('--q-in', action='store_true')
 parser.add_argument('--forecast-horizon', type=int, default=5)
 parser.add_argument('--num-runs', type=int, default=1)
+parser.add_argument('--n-stations', type=int, default=None)
 
+
+# Add device selection
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}")
 
 # ----
 def tilted_loss(q, y, f):
@@ -90,7 +95,7 @@ def create_sequence(t, X, y, window_size, q_in, forecast_horizon):
                 Xs.append(X[i: (i + window_size)])
                 ys.append(y[i + window_size: i + window_size + forecast_horizon])
 
-        ts, Xs, ys = torch.stack(ts), torch.stack(Xs), torch.stack(ys)
+        ts, Xs, ys = torch.stack(ts).to(device), torch.stack(Xs).to(device), torch.stack(ys).to(device)
         
         if 'cnn' in args.model:
             Xs = torch.unsqueeze(Xs, dim=1)
@@ -141,6 +146,9 @@ def get_dataloaders(train_ds, val_ds, gr4j_run_dir, station_id, batch_size, **kw
                                     q_in=kwargs['q_in'],
                                     forecast_horizon=kwargs['forecast_horizon'])
 
+    t_train, X_train, y_train = t_train.to(device), X_train.to(device), y_train.to(device)
+    t_val, X_val, y_val = t_val.to(device), X_val.to(device), y_val.to(device)
+
     # Create Sequence Datasets and DataLoaders
     train_ds = torchdata.TensorDataset(t_train, X_train, y_train)
     train_dl = torchdata.DataLoader(train_ds, 
@@ -172,10 +180,12 @@ def compute_flooding_threshold(repo, station_id):
     return flooding_threshold
 
 
-def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quantiles=[0.5], threshold=0.0, run_dir=None, dataset='train'):
+def evaluate_preds(models, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quantiles=[0.5], threshold=0.0, run_dir=None, dataset='train'):
+
+    # Move models to device
+    models = [model.to(device) for model in models]
 
     # Evaluate on train data
-    model.eval()
     dl = torchdata.DataLoader(ds, 
                               batch_size=batch_size,
                               shuffle=False)
@@ -188,26 +198,35 @@ def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quant
     T = []
 
     for i, (t, X, y) in enumerate(dl, start=1):
-        
-        y_hat = model(X)
 
-        T.append(t.detach().numpy())
-        Q.append((y*y_sigma+y_mu).detach().numpy())
-        Q_hat.append((y_hat*y_sigma+y_mu).detach().numpy())
+        t, X, y = t.to(device), X.to(device), y.to(device)
+
+        y_hat = []
+        
+        for model in models:
+            model.eval()
+        
+            y_hat.append(model(X))
+        
+        y_hat = torch.concat(y_hat, dim=-1)
+
+        T.append(t.detach().cpu().numpy())
+        Q.append((y*y_sigma+y_mu).detach().cpu().numpy())
+        Q_hat.append((y_hat*y_sigma+y_mu).detach().cpu().numpy())
         
         if 'conv' in model.__class__.__name__.lower():
             if q_in:
                 X_inv = X[:, 0, -1, :-1]*prod_store.sigma+prod_store.mu
             else:
                 X_inv = X[:, 0, -1]*prod_store.sigma+prod_store.mu
-        elif 'lstm' in model.__class__.__name__.lower():
+        else:
             if q_in:
                 X_inv = X[:, -1, :-1]*prod_store.sigma+prod_store.mu
             else:
                 X_inv = X[:, -1]*prod_store.sigma+prod_store.mu
         
-        P.append((X_inv[:, 0]).detach().numpy())
-        ET.append((X_inv[:, 1]).detach().numpy())
+        P.append((X_inv[:, 0]).detach().cpu().numpy())
+        ET.append((X_inv[:, 1]).detach().cpu().numpy())
     
     P = np.concatenate(P, axis=0)
     ET = np.concatenate(ET, axis=0)
@@ -227,17 +246,21 @@ def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quant
 
     for k in range(forecast_horizon):
 
+        print(f"Evaluating timestep {k+1}...")
+
         # Evaluate prediction metrics
         evaluation_metrics[k] = evaluate(Q[:, k], Q_hat[:, k],
                                       quantiles=quantiles)
         
         # Evaluate interval metrics
-        interval_metrics[k] = out_of_interval(targets=Q[:, k],
+        interval_metrics[k] = interval_score(targets=Q[:, k],
                                            predictions=Q_hat[:, k])
 
         # Plot quantiles
         fig = plot_quantiles(T[:, k], Q[:, k], Q_hat[:, k],
                                quantiles, threshold, ax=ax[k])
+        print(dt.datetime.fromtimestamp(T.min()), 
+              dt.datetime.fromtimestamp(T.max()))
         
         # Set title
         ax[k].set_title(f"Streamflow prediction at timestep {k+1}")
@@ -255,8 +278,9 @@ def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quant
 
     # Flood risk indicator
     T_time = np.array(list(map(dt.datetime.fromtimestamp, T[:, 0])))
-    T_time = T_time
-    Q_hat = Q_hat
+    T_time = T_time[-365*2:]
+    Q_hat = Q_hat[-365*2:]
+    Q = Q[-365*2:]
     alert = np.array([-1]*len(T_time))
     predicted_quantiles = Q_hat.max(axis=1)
 
@@ -276,7 +300,6 @@ def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quant
     ax[0].set_ylabel("Flow (mm/day)")
     ax[0].set_title("Observed Streamflow")
     ax[0].grid(True)
-    ax[0].set_ylim(0, Q.max())
     ax[0].legend()
 
     # Plot streamflow quantile predictions
@@ -289,7 +312,7 @@ def evaluate_preds(model, prod_store, ds, batch_size, y_mu, y_sigma, q_in, quant
     ax[1].set_ylabel("Flow (mm/day)")
     ax[1].set_title("Predicted Streamflow Quantiles")
     ax[1].grid(True)
-    ax[1].set_ylim(0, Q.max())
+    ax[1].set_ylim(0, max(Q.max(), threshold))
 
     # Plot alert levels
     ax[2].scatter(T_time[alert==2], alert[alert==2], 
@@ -324,6 +347,7 @@ def val_step(model, dl, quantiles):
     total_loss = 0.
     model.eval()
     for i, (t, X, y) in enumerate(dl, start=1):
+        t, X, y = t.to(device), X.to(device), y.to(device)
         y_hat = model(X)
         batch_loss = 0.
         for j, q in enumerate(quantiles):
@@ -336,6 +360,7 @@ def train_step(model, dl, quantiles, opt):
     total_loss = 0.
     model.train()
     for i, (t, X, y) in enumerate(dl, start=1):
+        t, X, y = t.to(device), X.to(device), y.to(device)
         opt.zero_grad()
         y_hat = model(X)
         batch_loss = 0.
@@ -348,6 +373,7 @@ def train_step(model, dl, quantiles, opt):
 
 
 def train_model(model, train_dl, val_dl, opt, early_stopper, n_epoch, quantiles):
+    model = model.to(device)
     pbar = tqdm(range(1, n_epoch+1))
     
     train_losses = []
@@ -417,59 +443,90 @@ def train_and_evaluate(train_ds, val_ds,
 
     # Create ConvNet model
     if kwargs['model'] == 'cnn':
-        model = ConvNetAE(ts_in=kwargs['window_size'],
+        models = [ ConvNetAE(ts_in=kwargs['window_size'],
                             in_dim=kwargs['n_features'],
                             ts_out=kwargs['forecast_horizon'],
-                            out_dim=len(kwargs['quantiles']),
-                            hidden_dim=kwargs['hidden_dim'])
+                            out_dim=1,
+                            hidden_dim=kwargs['hidden_dim']).to(device)
+        for _ in range(len(kwargs['quantiles']))]
         
 
     elif kwargs['model'] == 'lstm':
-        model = MultiStepLSTMNet(input_dim=kwargs['n_features'],
+        models = [MultiStepLSTMNet(input_dim=kwargs['n_features'],
                                 hidden_dim=kwargs['hidden_dim'],
                                 lstm_dim=kwargs['lstm_dim'],
-                                output_dim=len(kwargs['quantiles']),
+                                output_dim=1,
                                 n_layers=kwargs['n_layers'],
                                 forecast_horizon=kwargs['forecast_horizon'],
-                                dropout=kwargs['dropout'])
+                                dropout=kwargs['dropout']).to(device)
+                    for _ in range(len(kwargs['quantiles']))]
 
-    
-    # Create optimizer and loss instance
-    opt = torch.optim.Adam(model.parameters(), lr=lr,
-                           weight_decay=kwargs['weight_decay'],
-                           betas=(0.89, 0.97))
+        # models = [LSTMNet(input_dim=kwargs['n_features'],
+        #                         hidden_dim=kwargs['hidden_dim'],
+        #                         lstm_dim=kwargs['lstm_dim'],
+        #                         output_dim=kwargs['forecast_horizon'],
+        #                         n_layers=kwargs['n_layers'],
+        #                         dropout=kwargs['dropout']).to(device)
+        #             for _ in range(len(kwargs['quantiles']))]
 
-    # Early stopping
-    early_stopper = EarlyStopper(patience=10, min_delta=0.01)
+    elif kwargs['model'] == 'rnn':
+        models = [RNN(input_dim=kwargs['n_features'],
+                        hidden_dim=kwargs['hidden_dim'],
+                        output_dim=kwargs['forecast_horizon'],
+                        n_layers=kwargs['n_layers'],
+                        dropout=kwargs['dropout']).to(device)
+                    for _ in range(len(kwargs['quantiles']))]
+        
+    elif kwargs['model'] == 'mlp':
+        models = [MLP(input_size=kwargs['n_features']*kwargs['window_size'],
+                      hidden_sizes=[64, 32, 64, 32, 16],
+                      output_size=kwargs['forecast_horizon'],
+                      activation=nn.ReLU).to(device)
+                    for _ in range(len(kwargs['quantiles']))]
 
-
-    # Print model summary
-    if args.model == 'cnn':
-        print(summary(model, input_size=(1, kwargs['window_size'], 
-                                     kwargs['n_features'])))
-    # elif args.model == 'lstm':
-    #     print(summary(model, input_size=(kwargs['window_size'], 
-    #                                  kwargs['n_features'])))
-
-
-    # Train model
-    model, loss_plot = train_model(model, train_dl, val_dl, opt, 
-                        early_stopper, n_epoch, kwargs['quantiles'])
-    
     # Station results directory
     station_dir = os.path.join(run_dir, 'stations', station_id)
     if not os.path.exists(station_dir):
         os.makedirs(station_dir)
 
-    # Save plot
-    loss_plot.savefig(os.path.join(station_dir, "loss.png"),
-                      bbox_inches='tight')
+    # Quantiles
+    quantiles = kwargs['quantiles']
+    
+    for id, model in enumerate(models):
+    
+        # Create optimizer and loss instance
+        opt = torch.optim.Adam(model.parameters(), lr=lr,
+                            weight_decay=kwargs['weight_decay'],
+                            betas=(0.89, 0.97))
+
+        # Early stopping
+        early_stopper = EarlyStopper(patience=10, min_delta=0.01)
+
+
+        # Print model summary
+        if args.model == 'cnn':
+            print(summary(model, input_size=(1, kwargs['window_size'], 
+                                        kwargs['n_features'])))
+        # elif args.model == 'lstm':
+        #     print(summary(model, input_size=(kwargs['window_size'], 
+        #                                  kwargs['n_features'])))
+
+
+        # Train model
+        model, loss_plot = train_model(model, train_dl, val_dl, opt, 
+                            early_stopper, n_epoch, [quantiles[id]])
+
+
+        # Save plot
+        loss_plot.savefig(os.path.join(station_dir, 
+                                       f"loss_{quantiles[id]:.2f}.png"),
+                          bbox_inches='tight')
 
     # Compute flooding threshold
     flooding_threshold = compute_flooding_threshold(repo, station_id)
 
     # Evaluate on train data
-    metrics = evaluate_preds(model, prod_store, train_ds, batch_size,
+    metrics = evaluate_preds(models, prod_store, train_ds, batch_size,
                              y_mu, y_sigma, q_in=kwargs['q_in'],
                              quantiles=kwargs['quantiles'],
                              threshold=flooding_threshold,
@@ -499,7 +556,7 @@ def train_and_evaluate(train_ds, val_ds,
     #                   bbox_inches='tight')
     
     # Evaluate on val data
-    metrics = evaluate_preds(model, prod_store, val_ds, batch_size,
+    metrics = evaluate_preds(models, prod_store, val_ds, batch_size,
                              y_mu, y_sigma, q_in=kwargs['q_in'],
                              quantiles=kwargs['quantiles'],
                              threshold=flooding_threshold,
@@ -551,7 +608,14 @@ if __name__ == '__main__':
             args.run_dir = os.path.join(args.run_dir, args.state)
             if not os.path.exists(args.run_dir):
                 os.makedirs(args.run_dir)
-            station_ids = get_station_list_from_state(args.data_dir, args.state)
+            station_ids = get_station_list_from_state(args.data_dir, 
+                                                      args.sub_dir,
+                                                      args.state, 
+                                                      args.n_stations)
+            station_from_data = get_station_list(args.data_dir, args.sub_dir)
+            print(f"Station ids from {args.state} state: {station_ids}")
+            station_ids = list(set(station_ids) & set(station_from_data))
+            print(f"Selected {len(station_ids)} stations from {args.state} state.")
         else:
             station_ids = get_station_list(args.data_dir, args.sub_dir)
     else:
