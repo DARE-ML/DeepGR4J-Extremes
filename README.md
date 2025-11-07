@@ -10,6 +10,7 @@ This repository extends the work from [DeepGR4J](https://github.com/DARE-ML/Deep
 
 
 ### Cite this work
+```
 @article{kapoor2025qdeepgr4j,
   title={QDeepGR4J: Quantile-based ensemble of deep learning and GR4J hybrid rainfall--runoff models for extreme flow prediction with uncertainty quantification},
   author={Kapoor, Arpit and Chandra, Rohitash},
@@ -18,4 +19,5 @@ This repository extends the work from [DeepGR4J](https://github.com/DARE-ML/Deep
   year={2025},
   publisher={Elsevier}
 }
+```
  
